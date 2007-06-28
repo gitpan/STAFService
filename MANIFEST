@@ -1,0 +1,12 @@
+Makefile.pl
+MANIFEST
+Changes
+perlglue.cpp
+perlglue.h
+README
+STAFPerlService.cpp
+STAFPerlService.def
+STAFPerlService.h
+lib/STAFService.pm
+t/SimpleService.pm
+t/01.pl
