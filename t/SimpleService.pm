@@ -10,3 +10,5 @@ sub AcceptRequest {
     my ($self, $params) = @_;
     return (0, 42);
 }
+
+1;

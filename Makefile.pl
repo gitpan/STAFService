@@ -3,7 +3,7 @@ use strict;
 use PLSTAF;
 use Config;
 
-my $stafDir = GetStafRootDir();
+my $stafDir = GetStafDirFromCmdLine() || GetStafRootDir();
 
 print_makefile($stafDir);
 
@@ -12,13 +12,13 @@ sub print_makefile {
     my ($stafDir) = @_;
     open my $mf, ">", "Makefile"
         or die "Can not write the Makefile!\n";
-    print $mf "PERLSRV.$Config{'so'}: perlglue.cpp STAFPerlService.cpp\n";
-    print $mf qq{\t$Config{'cc'} $Config{'ccflags'} -GX -I "$stafDir/include" -I "$Config{'privlib'}/CORE" -D "WIN32" -D "_DEBUG" -D "_WINDOWS" -D "_MBCS" -D "_USRDLL" -c STAFPerlService.cpp perlglue.cpp\n};
-    # -MTd -nologo -W3 -Gm -ZI -Od -YX -FD -GZ
+    print $mf "PERLSRV.$Config{'so'}: src/perlglue.cpp src/STAFPerlService.cpp\n";
+    print $mf qq{\t$Config{'cc'} $Config{'ccflags'} -I "$Config{'privlib'}/CORE" -I "./src" -c src/STAFPerlService.cpp src/perlglue.cpp\n};
+    # -D "WIN32" -D "_DEBUG" -D "_WINDOWS" -D "_MBCS" -D "_USRDLL"
+    # -MTd -nologo -W3 -Gm -ZI -Od -YX -FD -GZ -GX
     # /Fo"Debug/"  - objects dir
-    my $linker_option = $Config{'lddlflags'};
-    $linker_option =~ s/-nodefaultlib|-nostdlib//;
-    print $mf qq{\t$Config{'ld'} $linker_option STAF$Config{'_a'} $Config{'libperl'} -def:"STAFPerlService.def" -out:"PERLSRV.$Config{'so'}" -libpath:"$stafDir/lib" STAFPerlService$Config{'_o'} perlglue$Config{'_o'}\n};
+    # -I "$stafDir/include" 
+    print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAF$Config{'_a'} $Config{'libperl'} $Config{'libs'} -def:"src/STAFPerlService.def" -out:"PERLSRV.$Config{'so'}" -libpath:"$stafDir/lib" STAFPerlService$Config{'_o'} perlglue$Config{'_o'}\n};
     # -nologo -dll -machine:I386
     # -libpath:"$Config{'privlib'}/CORE"  -pdbtype:sept 
     # /implib:"Debug/PERLSRV.lib" /pdb:"Debug/PERLSRV.pdb" $Config{'lddlflags'} $Config{'perllibs'}
@@ -34,6 +34,15 @@ sub print_makefile {
     print $mf "\n";
 }
 
+sub GetStafDirFromCmdLine {
+    my ($dirparam) = grep /^-stafdir=/, @ARGV;
+    return unless defined $dirparam;
+
+    my ($dir) = $dirparam =~ /=(.*)/;
+    return unless -d $dir && -d $dir."/bin";
+    return $dir if -e $dir."/bin/staf.cfg";
+    return;
+}
 
 sub GetStafRootDir {
     my $handle = STAF::STAFHandle->new("My program"); 

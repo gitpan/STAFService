@@ -1,6 +1,6 @@
 package STAFService;
 
-our $VERSION = 0.01;
+our $VERSION = 0.02;
 
 1;
 __END__
@@ -14,6 +14,10 @@ STAFService - Perl extension for writing STAF Services easily.
 On the staf.cfg file:
 
   SERVICE service_name LIBRARY PERLSRV EXECUTE SimpleService
+
+Or if SimpleService is not in the PERL5LIB:
+
+  SERVICE service_name LIBRARY PERLSRV EXECUTE SimpleService OPTION USELIB="c:/STAF/Perl/handler"
 
 And SimpleService.pm should look like that:
 
@@ -48,6 +52,7 @@ You know the drill.
 
   perl Makefile.pl
   make
+  make test
   make install
 
 - The installation process needs STAF to be up and running
@@ -150,9 +155,10 @@ returning anything else will be treated as error.
 If cleanup is needed, you can implement a DESTROY method that will be called then
 the service will be shut down. up to you.
 
-=head2 EXPORT
+=head1 BUGS
 
-Nothing.
+On unloading, I get a message about Perl "Attempt to free unreferenced scalar"
+Yet to be resolved.
 
 =head1 SEE ALSO
 

@@ -1,5 +1,8 @@
 Revision history for Perl extension STAFService.
 
+0.02  Jul 6, 2007
+	- Portability, bug fixes.
+
 0.01  Jun 28, 2007
 	- original version; created by Shmuel Fomberg.
 

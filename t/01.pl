@@ -21,7 +21,7 @@ sub my_submit {
     my ($handle, $srv, $request) = @_;
     my $result = $handle->submit("local", $srv, $request); 
     if ($result->{rc} != $STAF::kOk) { 
-        print "Error getting STAF home, RC: $result->{rc}\n"; 
+        print "Error getting result, request='$request', RC: $result->{rc}\n"; 
         if (length($result->{result}) != 0) { 
             print "Additional info: $result->{result}\n"; 
         } 
