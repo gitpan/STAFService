@@ -1,10 +1,6 @@
 
 #include "perlglue.h"
 
-/* Fixing linker error: unresolved external symbol __fltused
- * by disabling the Floating Point library flag. */
-extern "C" int _fltused = 0x9875; 
-
 typedef struct PerlHolder {
 	PerlInterpreter *perl;
 	HV *data;
@@ -50,6 +46,10 @@ const char *toChar(pTHX_ STAFString_t source, char **tmpString) {
 	if (ret!=kSTAFOk)
 		return NULL;
 	return *tmpString;
+}
+
+void SetErrorBuffer(STAFString_t *pErrorBuffer, const char *err_str) {
+	STAFStringConstruct(pErrorBuffer, err_str, my_strlen(err_str), NULL);
 }
 
 /** my_eval_sv(code)
@@ -105,7 +105,7 @@ STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString
 		  "print '*** ', scalar(localtime), ' - Start of Log for PerlServiceName: ', $service_name, \"\\n\";\n" 
 		  "print '*** PerlService Executable: ', $service_module, \"\\n\";\n"
 		  "$|=1;\n"
-		  "1;\n"
+		  "return $old_fh;\n"
 		"}\n";
 	char *write_location = NULL;
 	char *service_name = NULL;
@@ -117,7 +117,7 @@ STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString
 	int ret = my_eval_sv(aTHX_ command);
 	SvREFCNT_dec(command);
 	if (ret == 0) {
-		STAFStringConstruct(pErrorBuffer, "Error: Redirection failed!", 26, NULL);
+		SetErrorBuffer(pErrorBuffer, "Error: Redirection failed!");
 		return kSTAFUnknownError;
 	}
 	return kSTAFOk;
@@ -137,7 +137,7 @@ STAFRC_t PreparePerlInterpreter(void *holder, STAFString_t library_name, STAFStr
 	SvREFCNT_dec(command);
 	toChar(aTHX_ NULL, &tmp);
 	if (ret_val==0) {
-		STAFStringConstruct(pErrorBuffer, "Error: Load Library Failed!", 27, NULL);
+		SetErrorBuffer(pErrorBuffer, "Error: Load Library Failed!");
 		return kSTAFServiceConfigurationError;
 	}
 	return kSTAFOk;
@@ -198,10 +198,6 @@ STAFProcPerlServiceData *CreatePerl(STAFString_t service_name, STAFString_t libr
 	return pData;
 }
 
-void SetErrorBuffer(STAFString_t *pErrorBuffer, const char *err_str) {
-	STAFStringConstruct(pErrorBuffer, err_str, my_strlen(err_str), NULL);
-}
-
 SV *call_new(pTHX_ char *module_name, HV *hv, STAFString_t *pErrorBuffer) {
 	SV *ret = NULL;
 	int count;
@@ -214,15 +210,15 @@ SV *call_new(pTHX_ char *module_name, HV *hv, STAFString_t *pErrorBuffer) {
 	PUTBACK;
     count = call_method("new", G_SCALAR | G_EVAL);
     SPAGAIN;
+	ret = POPs;
 	if (SvTRUE(ERRSV)) {
 		// There was an error
 		SetErrorBuffer(pErrorBuffer, SvPVX(ERRSV));
-		POPs;
 		ret = NULL;
     } else {
-		ret = POPs;
 		if (!SvOK(ret)) {
 			// undefined result?!
+			SetErrorBuffer(pErrorBuffer, "Unexpected Result Returned!");
 			ret = NULL;
 		} else if (!(SvROK(ret) && (SvTYPE(ret) & SVt_PVMG))) {
 			// Not an object
@@ -341,9 +337,8 @@ STAFRC_t DestroyPerl(STAFProcPerlServiceData *holder) {
 	toChar(aTHX_ NULL, &(ph->moduleName));
 	free(ph);
 	free(pData);
-	perl_destruct(ph->perl);
-    perl_free(ph->perl);
-	ph->perl = NULL;
+	perl_destruct(pperl);
+    perl_free(pperl);
 	DestroyPerlEnviroment();
 	return kSTAFOk;
 }
