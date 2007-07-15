@@ -1,6 +1,9 @@
 Revision history for Perl extension STAFService.
 
-0.02  Jul 6, 2007
+0.04  Jul 6, 2007
+	- Distributing Issus.
+
+0.03  Jul 6, 2007
 	- Minor bug fixes.
 
 0.02  Jul 6, 2007
