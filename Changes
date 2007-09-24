@@ -1,5 +1,9 @@
 Revision history for Perl extension STAFService.
 
+0.05  Sep 24, 2007
+	- Fixed the "unreferenced scalar at global cleanup" on service unload
+	- improved the makefile (need more work)
+
 0.04  Jul 6, 2007
 	- Distributing Issus.
 

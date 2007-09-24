@@ -1,5 +1,13 @@
 
 #include "perlglue.h"
+#define PERL_NO_GET_CONTEXT     /* we want efficiency */
+
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+
+#undef malloc
+#undef free
 
 typedef struct PerlHolder {
 	PerlInterpreter *perl;
@@ -33,7 +41,7 @@ unsigned int my_strlen(const char *str) {
 	return 0;
 }
 
-const char *toChar(pTHX_ STAFString_t source, char **tmpString) {
+const char *toChar(STAFString_t source, char **tmpString) {
 	if (*tmpString!=NULL) {
 		STAFStringFreeBuffer(*tmpString, NULL);
 		*tmpString = NULL;
@@ -99,21 +107,22 @@ STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString
 		    "unlink $dir.'/PerlInterpreterLog.'.$maxlogs if -e $dir.'/PerlInterpreterLog.'.$maxlogs;\n"
 		    "for (my $ix=$maxlogs-1; $ix>0; $ix++) { \n"
 			  "rename($dir.'/PerlInterpreterLog.'.$ix, $dir.'/PerlInterpreterLog.'.($ix+1)) }}\n"
-		  "open my $fh, \">>\", $dir.'/PerlInterpreterLog.1' or die 'Failed to redirect';\n"
-		  "my $old_fh = select $fh;\n"
+//		  "open my $fh, \">>\", $dir.'/PerlInterpreterLog.1' or die 'Failed to redirect';\n"
+//		  "my $old_fh = select $fh;\n"
+		  "open $STAFSERVICE::_REDIRECT_HANDLE, \">>\", $dir.'/PerlInterpreterLog.1' or die 'Failed to redirect';\n"
+		  "select $STAFSERVICE::_REDIRECT_HANDLE;\n"
 		  "print '*' x 80, \"\\n\";\n"
 		  "print '*** ', scalar(localtime), ' - Start of Log for PerlServiceName: ', $service_name, \"\\n\";\n" 
 		  "print '*** PerlService Executable: ', $service_module, \"\\n\";\n"
 		  "$|=1;\n"
-		  "return $old_fh;\n"
 		"}\n";
 	char *write_location = NULL;
 	char *service_name = NULL;
-	SV *command = newSVpvf(command_fmt, toChar(aTHX_ WriteLocation, &write_location), toChar(aTHX_ ServiceName, &service_name), 
+	SV *command = newSVpvf(command_fmt, toChar(WriteLocation, &write_location), toChar(ServiceName, &service_name), 
 							maxlogsize, maxlogs, ph->moduleName);
 	//fprintf(stderr, "The redirection command: |%s|\n", SvPVX(command));
-	toChar(aTHX_ NULL, &write_location);
-	toChar(aTHX_ NULL, &service_name);
+	toChar(NULL, &write_location);
+	toChar(NULL, &service_name);
 	int ret = my_eval_sv(aTHX_ command);
 	SvREFCNT_dec(command);
 	if (ret == 0) {
@@ -123,23 +132,18 @@ STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString
 	return kSTAFOk;
 }
 
-STAFRC_t PreparePerlInterpreter(void *holder, STAFString_t library_name, STAFString_t uselib, STAFString_t *pErrorBuffer) {
+void my_load_module(pTHX_ const char *module_name) {
+	SV *sv_name = newSVpv(module_name, 0);
+	load_module(PERL_LOADMOD_NOIMPORT, sv_name, Nullsv);
+//	SvREFCNT_dec(sv_name);
+}
+
+STAFRC_t PreparePerlInterpreter(void *holder, STAFString_t library_name, STAFString_t *pErrorBuffer) {
 	char *tmp = NULL;
 	PHolder *ph = (PHolder *)holder;
 	dTHXa(ph->perl);
-	SV *command = newSVpv("",0);
-	if (uselib!=NULL) {
-		sv_catpvf(command, " use lib %s;", toChar(aTHX_ uselib, &tmp));
-	}
-	sv_catpvf(command, " require %s; 1;", toChar(aTHX_ library_name, &tmp));
-	//fprintf(stderr, "Prepare Command: |%s|\n", SvPVX(command));
-	int ret_val = my_eval_sv(aTHX_ command);
-	SvREFCNT_dec(command);
-	toChar(aTHX_ NULL, &tmp);
-	if (ret_val==0) {
-		SetErrorBuffer(pErrorBuffer, "Error: Load Library Failed!");
-		return kSTAFServiceConfigurationError;
-	}
+	my_load_module(aTHX_ toChar(library_name, &tmp));
+	toChar(NULL, &tmp);
 	return kSTAFOk;
 }
 
@@ -151,51 +155,64 @@ void storeIV2HV(pTHX_ HV *hv, const char *key, int value) {
 	hv_store(hv, key, my_strlen(key), newSViv(value), 0);
 }
 
-void PopulatePerlHolder(pTHX_ PHolder *ph, PerlInterpreter *pperl, STAFString_t service_name, STAFString_t library_name, STAFServiceType_t serviceType) {
-	ph->perl = pperl;
+void PopulatePerlHolder(void *holder, STAFString_t service_name, STAFString_t library_name, STAFServiceType_t serviceType) {
+	PHolder *ph = (PHolder *)holder;
+	dTHXa(ph->perl);
+	PERL_SET_CONTEXT(ph->perl);
+
 	char *tmp = NULL;
 	ph->object = NULL;
 	ph->data = newHV();
-	storePV2HV(aTHX_ ph->data, "ServiceName", toChar(aTHX_ service_name, &tmp));
+	storePV2HV(aTHX_ ph->data, "ServiceName", toChar(service_name, &tmp));
 	storeIV2HV(aTHX_ ph->data, "ServiceType", serviceType);
-	ph->moduleName = NULL;
-	toChar(aTHX_ library_name, &(ph->moduleName)); 
-	toChar(aTHX_ NULL, &tmp);
+
+	toChar(library_name, &tmp);
+	int len = my_strlen(tmp);
+	ph->moduleName = (char *)malloc(len+1);
+	strcpy(ph->moduleName, tmp);
+	toChar(NULL, &tmp);
 }
 
-STAFProcPerlServiceData *CreatePerl(STAFString_t service_name, STAFString_t library_name, STAFServiceType_t serviceType) {
+void *CreatePerl() {
 	InitPerlEnviroment();
     char *embedding[] = { "", "-e", "0" };
 
+	PHolder *ph = (PHolder*)malloc(sizeof(PHolder));
+	if (ph==NULL) return NULL;
+
     PerlInterpreter *pperl = perl_alloc();
-	if (pperl==NULL) {
-		return NULL;
-	}
+	if (pperl==NULL) return NULL;
+
     perl_construct( pperl );
 	dTHXa(pperl);
 	perl_parse(pperl, xs_init, 3, embedding, NULL);
     PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
     perl_run(pperl);
 
-	PHolder *ph = (PHolder*)malloc(sizeof(PHolder));
-	if (ph==NULL) {
-		perl_destruct(pperl);
-		perl_free(pperl);
-		return NULL;
-	}
+	my_load_module(aTHX_ "lib");
 
-	STAFProcPerlServiceData *pData = (STAFProcPerlServiceData*)malloc(sizeof(STAFProcPerlServiceData));
-	if (pData==NULL) {
-		perl_destruct(pperl);
-		perl_free(pperl);
-		free(ph);
-		return NULL;
-	}
+	ph->perl = pperl;
+	return ph;
+}
 
-	PopulatePerlHolder(aTHX_ ph, pperl, service_name, library_name, serviceType);
+void perl_uselib(void *holder, STAFString_t path) {
+	PHolder *ph = (PHolder *)holder;
+	dTHXa(ph->perl);
+	PERL_SET_CONTEXT(ph->perl);
+	char *tmp = NULL;
 
-	pData->perl = (void *)ph;
-	return pData;
+	dSP;
+	ENTER;
+	SAVETMPS;
+	PUSHMARK(SP);
+	XPUSHs(sv_2mortal(newSVpv("lib", 0)));
+	XPUSHs(sv_2mortal(newSVpv(toChar(path, &tmp), 0)));
+	PUTBACK;
+    call_method("import", G_DISCARD | G_EVAL);
+
+    FREETMPS;
+    LEAVE;
+	toChar(NULL, &tmp);
 }
 
 SV *call_new(pTHX_ char *module_name, HV *hv, STAFString_t *pErrorBuffer) {
@@ -238,10 +255,10 @@ STAFRC_t InitService(void *holder, STAFString_t parms, STAFString_t writeLocatio
 	dTHXa(ph->perl);
 	PERL_SET_CONTEXT(ph->perl);
 	char *tmp = NULL;
-	storePV2HV(aTHX_ ph->data, "WriteLocation", toChar(aTHX_ writeLocation, &tmp));
-	storePV2HV(aTHX_ ph->data, "Params", toChar(aTHX_ parms, &tmp));
+	storePV2HV(aTHX_ ph->data, "WriteLocation", toChar(writeLocation, &tmp));
+	storePV2HV(aTHX_ ph->data, "Params", toChar(parms, &tmp));
 	SV *object = call_new(aTHX_ ph->moduleName, ph->data, pErrorBuffer);
-	toChar(aTHX_ NULL, &tmp);
+	toChar(NULL, &tmp);
 	if (object==NULL)
 		return kSTAFUnknownError;
 	ph->object = object;
@@ -284,21 +301,21 @@ STAFRC_t call_accept_request(pTHX_ SV *obj, SV *hash_ref, STAFString_t *pResultB
 HV *ConvertRequestStruct(pTHX_ struct STAFServiceRequestLevel30 *request) {
 	HV *ret = newHV();
 	char *tmp = NULL;
-	storePV2HV(aTHX_ ret, "stafInstanceUUID",	toChar(aTHX_ request->stafInstanceUUID, &tmp));
-	storePV2HV(aTHX_ ret, "machine",			toChar(aTHX_ request->machine, &tmp));
-	storePV2HV(aTHX_ ret, "machineNickname",	toChar(aTHX_ request->machineNickname, &tmp));
-	storePV2HV(aTHX_ ret, "handleName",			toChar(aTHX_ request->handleName, &tmp));
-	storePV2HV(aTHX_ ret, "request",			toChar(aTHX_ request->request, &tmp));
-	storePV2HV(aTHX_ ret, "user",				toChar(aTHX_ request->user, &tmp));
-	storePV2HV(aTHX_ ret, "endpoint",			toChar(aTHX_ request->endpoint, &tmp));
-	storePV2HV(aTHX_ ret, "physicalInterfaceID",toChar(aTHX_ request->physicalInterfaceID, &tmp));
+	storePV2HV(aTHX_ ret, "stafInstanceUUID",	toChar(request->stafInstanceUUID, &tmp));
+	storePV2HV(aTHX_ ret, "machine",			toChar(request->machine, &tmp));
+	storePV2HV(aTHX_ ret, "machineNickname",	toChar(request->machineNickname, &tmp));
+	storePV2HV(aTHX_ ret, "handleName",			toChar(request->handleName, &tmp));
+	storePV2HV(aTHX_ ret, "request",			toChar(request->request, &tmp));
+	storePV2HV(aTHX_ ret, "user",				toChar(request->user, &tmp));
+	storePV2HV(aTHX_ ret, "endpoint",			toChar(request->endpoint, &tmp));
+	storePV2HV(aTHX_ ret, "physicalInterfaceID",toChar(request->physicalInterfaceID, &tmp));
 	storeIV2HV(aTHX_ ret, "trustLevel",			request->trustLevel); 
 	storeIV2HV(aTHX_ ret, "isLocalRequest",		request->isLocalRequest); 
 	storeIV2HV(aTHX_ ret, "diagEnabled",		request->diagEnabled); 
 	storeIV2HV(aTHX_ ret, "trustLevel",			request->trustLevel); 
 	storeIV2HV(aTHX_ ret, "requestNumber",		request->requestNumber); 
 	storeIV2HV(aTHX_ ret, "handle",				request->handle); // FIXME - should use an object?
-	toChar(aTHX_ NULL, &tmp);
+	toChar(NULL, &tmp);
 	return ret;
 }
 
@@ -328,15 +345,13 @@ STAFRC_t Terminate(void *holder) {
 	return kSTAFOk;
 }
 
-STAFRC_t DestroyPerl(STAFProcPerlServiceData *holder) {
-	STAFProcPerlServiceData *pData = holder;
-	PHolder *ph = (PHolder *)pData->perl;
+STAFRC_t DestroyPerl(void *holder) {
+	PHolder *ph = (PHolder *)holder;
 	PerlInterpreter *pperl = ph->perl;
+	free(ph->moduleName);
+	free(ph);
 	dTHXa(pperl);
 	PERL_SET_CONTEXT(pperl);
-	toChar(aTHX_ NULL, &(ph->moduleName));
-	free(ph);
-	free(pData);
 	perl_destruct(pperl);
     perl_free(pperl);
 	DestroyPerlEnviroment();

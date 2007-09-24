@@ -2,12 +2,6 @@
 #ifndef __PERLGLUE_H__
 #define __PERLGLUE_H__
 
-#define PERL_NO_GET_CONTEXT     /* we want efficiency */
-
-#include "EXTERN.h"
-#include "perl.h"
-#include "XSUB.h"
-
 #include "STAFServiceInterface.h"
 
 typedef struct STAFProcPerlServiceDataST {
@@ -15,14 +9,16 @@ typedef struct STAFProcPerlServiceDataST {
 	STAFMutexSem_t mutex;
 } STAFProcPerlServiceData;
 
-STAFProcPerlServiceData *CreatePerl(STAFString_t service_name, STAFString_t library_name, STAFServiceType_t serviceType);
+void *CreatePerl();
+void PopulatePerlHolder(void *holder, STAFString_t service_name, STAFString_t library_name, STAFServiceType_t serviceType);
 STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString_t ServiceName, unsigned int maxlogs, long maxlogsize, STAFString_t *pErrorBuffer);
-STAFRC_t PreparePerlInterpreter(void *holder, STAFString_t library_name, STAFString_t uselib, STAFString_t *pErrorBuffer);
+STAFRC_t PreparePerlInterpreter(void *holder, STAFString_t library_name, STAFString_t *pErrorBuffer);
+void perl_uselib(void *holder, STAFString_t path);
 
 STAFRC_t InitService(void *holder, STAFString_t parms, STAFString_t writeLocation, STAFString_t *pErrorBuffer);
 STAFRC_t ServeRequest(void *holder, struct STAFServiceRequestLevel30 *request, STAFString_t *pResultBuffer);
 STAFRC_t Terminate(void *holder);
-STAFRC_t DestroyPerl(STAFProcPerlServiceData *holder);
+STAFRC_t DestroyPerl(void *holder);
 
 // Helper functions
 unsigned int my_strlen(const char *str);

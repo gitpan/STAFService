@@ -1,6 +1,6 @@
 package STAFService;
 
-our $VERSION = 0.04;
+our $VERSION = 0.05;
 
 1;
 __END__
@@ -157,8 +157,7 @@ the service will be shut down. up to you.
 
 =head1 BUGS
 
-On unloading, I get a message about Perl "Attempt to free unreferenced scalar"
-Yet to be resolved.
+Please report if you find any.
 
 =head1 SEE ALSO
 
