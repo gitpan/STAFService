@@ -6,7 +6,7 @@ use Config;
 use lib "./t";
 use TestSubs;
 
-# This is a normal-state test. a normal request, and a normal reply.
+# Testing inherating service
 
 my $uselib = $FindBin::Bin;
 my $dll = $FindBin::Bin . "/../PERLSRV.$Config{'so'}";
@@ -16,9 +16,11 @@ if ($handle->{rc} != $STAF::kOk) {
     print "Error registering with STAF, RC: $handle->{rc}\n"; 
     die $handle->{rc}; 
 }
-my_submit($handle, "SERVICE", "ADD SERVICE FirstTest LIBRARY $dll EXECUTE SimpleService OPTION USELIB=\"$uselib\"");
-my $result = send_request($handle, "FirstTest", "Ping", 0, "Pong");
+my $result1 = send_request($handle, "SERVICE",
+                           "ADD SERVICE FirstTest LIBRARY $dll EXECUTE SubService OPTION USELIB=\"$uselib\"",
+                           0, undef);
+my $result2 = send_request($handle, "FirstTest", "Ping", 0, "Pong");
 my_submit($handle, "SERVICE", "REMOVE SERVICE FirstTest");
-print "Test - ", ($result ? "OK" : "NOT OK"), "\n";
+print "Test - ", ($result1 and $result2 ? "OK" : "NOT OK"), "\n";
 
 

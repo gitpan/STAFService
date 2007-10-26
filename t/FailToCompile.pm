@@ -1,9 +1,9 @@
-package SimpleService;
+package FailToCompile;
+use XXXXXXXXXXXXXX;
 
 sub new {
     my ($class, $params) = @_;
     print "Params: ", join(", ", map $_."=>".$params->{$_}, keys %$params), "\n";
-    die "Dying on new" if (defined($params->{Params}) and $params->{Params} eq "die"); 
     return bless {}, $class;
 }
 

@@ -1,6 +1,6 @@
 package STAFService;
 
-our $VERSION = 0.05;
+our $VERSION = 0.06;
 
 1;
 __END__
@@ -56,6 +56,7 @@ You know the drill.
   make install
 
 - The installation process needs STAF to be up and running
+- Also, need STAF's bin directory in the Perl5Lib
 
 =head1 STAF CONFIGURATION
 
@@ -137,18 +138,17 @@ returning anything else will be treated as error.
   stafInstanceUUID
   machine
   machineNickname
-  handleName
   request - The request itself.
   user
   endpoint
   physicalInterfaceID
-  request
   trustLevel
   isLocalRequest
   diagEnabled
   trustLevel
   requestNumber
-  handle
+  handleName - of the requesting process
+  handle - the handle number of the requesting process
 
 =head2 DESTROY
 
@@ -157,7 +157,7 @@ the service will be shut down. up to you.
 
 =head1 BUGS
 
-Please report if you find any.
+Non known.
 
 =head1 SEE ALSO
 

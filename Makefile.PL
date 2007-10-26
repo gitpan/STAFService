@@ -26,18 +26,50 @@ sub print_makefile {
     my $ccflags = ccflags();
     my $perl_include = perl_inc();
     my $src_include = create_include("./src");
+    my $dyna_loader = find_dynaloader_lib();
     print $mf qq{\t$Config{'cc'} $ccflags $perl_include $src_include -c src/STAFPerlService.cpp src/perlglue.cpp\n};
-    print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAF$Config{'_a'} $Config{'libperl'} $Config{'libs'} -def:"src/STAFPerlService.def" -out:"PERLSRV.$Config{'so'}" -libpath:"$stafDir/lib" STAFPerlService$Config{'_o'} perlglue$Config{'_o'}\n};
+    if ($Config{'lddlflags'} =~ /-dll/) {
+        print "Will Link MSVC style\n";
+        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} $dyna_loader STAF$Config{'_a'} $Config{'libperl'} $Config{'libs'} -def:"src/STAFPerlService.def" -out:"PERLSRV.$Config{'so'}" -libpath:"$stafDir/lib"\n};
+    } elsif ($Config{'lddlflags'} =~ /-shared/) {
+        print "Will Link GCC style\n";
+        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} $dyna_loader -lSTAF -lperl -oPERLSRV.$Config{'so'} -L$stafDir/lib\n};
+    }
     print $mf "\n";
     print $mf "install:\n";
     print $mf "\t$Config{cp} PERLSRV.$Config{'so'} $stafDir/bin\n";
     print $mf "\n";
     print $mf "clean:\n";
-    print $mf "\t$Config{'rm'} *$Config{'_o'} *.$Config{'so'}\n";
+    print $mf "\t$Config{'rm'} *$Config{'_o'} *$Config{'_a'} *.$Config{'so'} *.pdb *.exp\n";
     print $mf "\n";
     print $mf "test:\n";
     print $mf "\t$Config{'perlpath'} t/01.pl\n";
+    print $mf "\t$Config{'perlpath'} t/02.pl\n";
+    print $mf "\t$Config{'perlpath'} t/03.pl\n";
+    print $mf "\t$Config{'perlpath'} t/04.pl\n";
+    print $mf "\t$Config{'perlpath'} t/05.pl\n";
+    print $mf "\t$Config{'perlpath'} t/06.pl\n";
+    print $mf "\t$Config{'perlpath'} t/07.pl\n";
     print $mf "\n";
+}
+
+sub find_dynaloader_lib {
+    # Code taken from XSLoader.pm
+    require DynaLoader;
+    my $module = 'DynaLoader';
+    my $lib_ext = $Config{'_a'};
+    print "Searching for DynaLoader$lib_ext... ";
+
+    my $modlibname = $INC{$module.".pm"};
+    $modlibname =~ s,[\\/][^\\/]+$,,;	# Q&D basename
+    my $file = "$modlibname/auto/$module/$module$lib_ext";
+    if (not -f $file) {
+        print "not found. (normal for win32)\n";
+        return '';
+    } else {
+        print "found.\n";
+        return $file;
+    }
 }
 
 sub create_include {
@@ -59,8 +91,9 @@ sub GetStafDirFromCmdLine {
 sub GetStafRootDir {
     my $handle = STAF::STAFHandle->new("My program"); 
     if ($handle->{rc} != $STAF::kOk) { 
-        print "Error registering with STAF, RC: $handle->{rc}\n"; 
-        die $handle->{rc}; 
+        print "Error registering with STAF, RC: $handle->{rc}\n";
+        print "Please make sure that STAF is currently running on your machine\n";
+        exit(1); 
     } 
     
     my $result = $handle->submit("local", "VAR", "resolve string {STAF/Config/STAFRoot}"); 
@@ -69,7 +102,7 @@ sub GetStafRootDir {
         if (length($result->{result}) != 0) { 
             print "Additional info: $result->{result}\n"; 
         } 
-        die $result->{rc}; 
+        exit(1); 
     } 
     
     my $StafRoot = $result->{result}; 

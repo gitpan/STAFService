@@ -20,7 +20,4 @@ STAFRC_t ServeRequest(void *holder, struct STAFServiceRequestLevel30 *request, S
 STAFRC_t Terminate(void *holder);
 STAFRC_t DestroyPerl(void *holder);
 
-// Helper functions
-unsigned int my_strlen(const char *str);
-
 #endif

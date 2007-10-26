@@ -31,16 +31,6 @@ EXTERN_C void xs_init(pTHX) {
     newXS("DynaLoader::boot_DynaLoader", boot_DynaLoader, file);
 }
 
-unsigned int my_strlen(const char *str) {
-	unsigned int ix;
-	if (str==NULL)
-		return 0;
-	for (ix=0; ix<1000; ix++)
-		if (str[ix]=='\0')
-			return ix;
-	return 0;
-}
-
 const char *toChar(STAFString_t source, char **tmpString) {
 	if (*tmpString!=NULL) {
 		STAFStringFreeBuffer(*tmpString, NULL);
@@ -57,7 +47,7 @@ const char *toChar(STAFString_t source, char **tmpString) {
 }
 
 void SetErrorBuffer(STAFString_t *pErrorBuffer, const char *err_str) {
-	STAFStringConstruct(pErrorBuffer, err_str, my_strlen(err_str), NULL);
+	STAFStringConstruct(pErrorBuffer, err_str, strlen(err_str), NULL);
 }
 
 /** my_eval_sv(code)
@@ -77,7 +67,7 @@ int my_eval_sv(pTHX_ SV *sv) {
     PUTBACK;     
 	if (SvTRUE(ERRSV)) {
  		ret_int = 0;
-		//fprintf(stderr, "Perl Error: %s\n", SvPVX(ERRSV));
+		fprintf(stderr, "Perl Error: %s\n", SvPVX(ERRSV));
 	} else {
 		ret_int = 1;
 	}
@@ -127,6 +117,7 @@ STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString
 	SvREFCNT_dec(command);
 	if (ret == 0) {
 		SetErrorBuffer(pErrorBuffer, "Error: Redirection failed!");
+		fprintf(stderr, "Error: Redirection failed!");
 		return kSTAFUnknownError;
 	}
 	return kSTAFOk;
@@ -135,24 +126,57 @@ STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString
 void my_load_module(pTHX_ const char *module_name) {
 	SV *sv_name = newSVpv(module_name, 0);
 	load_module(PERL_LOADMOD_NOIMPORT, sv_name, Nullsv);
-//	SvREFCNT_dec(sv_name);
 }
 
 STAFRC_t PreparePerlInterpreter(void *holder, STAFString_t library_name, STAFString_t *pErrorBuffer) {
-	char *tmp = NULL;
+	char *acsii_name;
+	unsigned int i, len, rc;
 	PHolder *ph = (PHolder *)holder;
 	dTHXa(ph->perl);
-	my_load_module(aTHX_ toChar(library_name, &tmp));
-	toChar(NULL, &tmp);
-	return kSTAFOk;
+
+	toChar(library_name, &acsii_name);
+	len = strlen(acsii_name);
+	for (i=0; i<len; i++) {
+		char c = acsii_name[i];
+		if (! ( ( c >= 'a' && c <= 'z' ) ||
+				( c >= 'A' && c <= 'Z' ) ||
+				( c >= '0' && c <= '9' ) ||
+				( c == '_' || c == ':')
+			  )) {
+			toChar(NULL, &acsii_name);
+			SetErrorBuffer(pErrorBuffer, "Illigal name"); // FIXME: this string arrive nowhere!
+			fprintf(stderr, "Illigal name");
+			return kSTAFUnknownError;
+		}
+	}
+	
+	SV *command = newSVpvf("require %s", acsii_name);
+	toChar(NULL, &acsii_name);
+    dSP;
+	ENTER;
+	SAVETMPS;
+	PUSHMARK(SP);
+    eval_sv(command, G_EVAL | G_DISCARD);
+	SvREFCNT_dec(command);
+	
+	if (SvTRUE(ERRSV)) {
+		SetErrorBuffer(pErrorBuffer, SvPVX(ERRSV)); // FIXME: this string arrive nowhere!
+		fprintf(stderr, "Error: %s", SvPVX(ERRSV));
+		rc = kSTAFUnknownError;
+	} else {
+		rc = kSTAFOk;
+	}
+    FREETMPS;
+    LEAVE;
+	return rc;
 }
 
 void storePV2HV(pTHX_ HV *hv, const char *key, const char *value) {
-	hv_store(hv, key, my_strlen(key), newSVpv(value, 0), 0);
+	hv_store(hv, key, strlen(key), newSVpv(value, 0), 0);
 }
 
 void storeIV2HV(pTHX_ HV *hv, const char *key, int value) {
-	hv_store(hv, key, my_strlen(key), newSViv(value), 0);
+	hv_store(hv, key, strlen(key), newSViv(value), 0);
 }
 
 void PopulatePerlHolder(void *holder, STAFString_t service_name, STAFString_t library_name, STAFServiceType_t serviceType) {
@@ -167,7 +191,7 @@ void PopulatePerlHolder(void *holder, STAFString_t service_name, STAFString_t li
 	storeIV2HV(aTHX_ ph->data, "ServiceType", serviceType);
 
 	toChar(library_name, &tmp);
-	int len = my_strlen(tmp);
+	int len = strlen(tmp);
 	ph->moduleName = (char *)malloc(len+1);
 	strcpy(ph->moduleName, tmp);
 	toChar(NULL, &tmp);

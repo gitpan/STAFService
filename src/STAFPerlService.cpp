@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 STAFRC_t ParseParameters(STAFServiceInfoLevel30 *pInfo, void *perl_holder, unsigned int *maxLogs, long *maxLogSize, STAFString_t *pErrorBuffer);
 STAFRC_t ReplaceChar(STAFString_t opr_str, char old, char newc);
@@ -105,7 +106,7 @@ STAFRC_t STAFServiceInit(STAFServiceHandle_t serviceHandle,
 	if (STAFMutexSemRelease(pData->mutex, NULL) != kSTAFOk) {
 		const char *msg = "Error in ServiceInit: could not aquire lock!";
 		//fprintf(stderr, "%s\n", msg);
-		STAFStringConstruct(pErrorBuffer, msg, my_strlen(msg), NULL);
+		STAFStringConstruct(pErrorBuffer, msg, strlen(msg), NULL);
 		return kSTAFUnknownError;
 	}
 
@@ -130,7 +131,7 @@ STAFRC_t STAFServiceTerm(STAFServiceHandle_t serviceHandle,
 	if (STAFMutexSemRelease(pData->mutex, NULL) != kSTAFOk) {
 		const char *msg = "Error in ServiceTerm: could not aquire lock!";
 		//fprintf(stderr, "%s\n", msg);
-		STAFStringConstruct(pErrorBuffer, msg, my_strlen(msg), NULL);
+		STAFStringConstruct(pErrorBuffer, msg, strlen(msg), NULL);
 		return kSTAFUnknownError;
 	}
 
@@ -158,7 +159,7 @@ STAFRC_t STAFServiceAcceptRequest(STAFServiceHandle_t serviceHandle,
 	if (STAFMutexSemRelease(pData->mutex, NULL) != kSTAFOk) {
 		const char *msg = "Error in AcceptRequest: could not aquire lock!";
 		//fprintf(stderr, "%s\n", msg);
-		STAFStringConstruct(pResultBuffer, msg, my_strlen(msg), NULL);
+		STAFStringConstruct(pResultBuffer, msg, strlen(msg), NULL);
 		return kSTAFUnknownError;
 	}
 
@@ -238,7 +239,7 @@ STAFRC_t ParseParameters(STAFServiceInfoLevel30 *pInfo, void *perl_holder, unsig
 			STAFRC_t ret1 = STAFStringToUInt(optionValue, maxLogs, 10, NULL);
 			if (ret1 != kSTAFOk) {
 				char *msg = "Error: MAXLOGS value is incorrect!";
-				STAFStringConstruct(pErrorBuffer, msg, my_strlen(msg), NULL);
+				STAFStringConstruct(pErrorBuffer, msg, strlen(msg), NULL);
 				ret = kSTAFServiceConfigurationError;
 				break;
 			}
@@ -251,7 +252,7 @@ STAFRC_t ParseParameters(STAFServiceInfoLevel30 *pInfo, void *perl_holder, unsig
 			STAFRC_t ret1 = STAFStringToUInt(optionValue, &maxLogSizeTmp, 10, NULL);
 			if (ret1 != kSTAFOk) {
 				char *msg = "Error: MAXLOGSIZE value is incorrect!";
-				STAFStringConstruct(pErrorBuffer, msg, my_strlen(msg), NULL);
+				STAFStringConstruct(pErrorBuffer, msg, strlen(msg), NULL);
 				ret = kSTAFServiceConfigurationError;
 				break;
 			} else

@@ -11,4 +11,14 @@ src/STAFPerlService.def
 src/STAFServiceInterface.h
 lib/STAFService.pm
 t/SimpleService.pm
+t/FailToCompile.pm
+t/SubService.pm
+t/TestSubs.pm
+t/dir/Service.pm
 t/01.pl
+t/02.pl
+t/03.pl
+t/04.pl
+t/05.pl
+t/06.pl
+t/07.pl
