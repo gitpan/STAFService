@@ -4,8 +4,17 @@ use PLSTAF;
 
 require Exporter;
 our @ISA = qw(Exporter);
-our @EXPORT = qw(my_submit send_request);
+our @EXPORT = qw(my_submit send_request staf_register);
 
+sub staf_register {
+    my $test_name = shift;
+    my $handle = STAF::STAFHandle->new($test_name); 
+    if ($handle->{rc} != $STAF::kOk) { 
+        print "Error registering with STAF, RC: $handle->{rc}\n"; 
+        die $handle->{rc}; 
+    }
+    return $handle;
+}
 
 sub send_request {
     my ($handle, $srv, $request, $expected_rc, $expected_string) = @_;

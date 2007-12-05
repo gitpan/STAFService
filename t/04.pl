@@ -19,7 +19,7 @@ if ($handle->{rc} != $STAF::kOk) {
 }
 my $result1 = send_request($handle, "SERVICE",
                            "ADD SERVICE FirstTest LIBRARY $dll EXECUTE FailToCompile OPTION USELIB=\"$uselib\"",
-                           27, undef);
+                           27, "6:Error constructing service");
 my $result2 = send_request($handle, "Ping", "Ping", 0, "PONG");
 print "Test - ", (($result1 and $result2) ? "OK" : "NOT OK"), "\n";
 

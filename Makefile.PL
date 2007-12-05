@@ -22,34 +22,48 @@ sub print_makefile {
     my ($stafDir) = @_;
     open my $mf, ">", "Makefile"
         or die "Can not write the Makefile!\n";
-    print $mf "PERLSRV.$Config{'so'}: src/perlglue.cpp src/STAFPerlService.cpp\n";
+    print $mf "PERLSRV.$Config{'so'}: src/perlglue.cpp src/STAFPerlService.cpp src/synchelper.cpp\n";
     my $ccflags = ccflags();
     my $perl_include = perl_inc();
     my $src_include = create_include("./src");
     my $dyna_loader = find_dynaloader_lib();
-    print $mf qq{\t$Config{'cc'} $ccflags $perl_include $src_include -c src/STAFPerlService.cpp src/perlglue.cpp\n};
+    print $mf qq{\t$Config{'cc'} $ccflags $perl_include $src_include -c src/STAFPerlService.cpp src/perlglue.cpp src/synchelper.cpp\n};
     if ($Config{'lddlflags'} =~ /-dll/) {
         print "Will Link MSVC style\n";
-        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} $dyna_loader STAF$Config{'_a'} $Config{'libperl'} $Config{'libs'} -def:"src/STAFPerlService.def" -out:"PERLSRV.$Config{'so'}" -libpath:"$stafDir/lib"\n};
+        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} synchelper$Config{'_o'} $dyna_loader STAF$Config{'_a'} $Config{'libperl'} $Config{'libs'} -def:"src/STAFPerlService.def" -out:"PERLSRV.$Config{'so'}" -libpath:"$stafDir/lib"\n};
     } elsif ($Config{'lddlflags'} =~ /-shared/) {
         print "Will Link GCC style\n";
-        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} $dyna_loader -lSTAF -lperl -oPERLSRV.$Config{'so'} -L$stafDir/lib\n};
+        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} synchelper$Config{'_o'} $dyna_loader -lSTAF -lperl -oPERLSRV.$Config{'so'} -L$stafDir/lib\n};
+    } else {
+        print "Can not identify your linking program.\n";
+        print "Please edit the Makefile or write the module editor (owner\@semuel.co.il)\n";
+        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} synchelper$Config{'_o'} $dyna_loader -lSTAF -lperl -oPERLSRV.$Config{'so'} -L$stafDir/lib\n};
     }
     print $mf "\n";
     print $mf "install:\n";
-    print $mf "\t$Config{cp} PERLSRV.$Config{'so'} $stafDir/bin\n";
+    my $lib_prefix = $Config{libperl} =~ /^lib/ ? "lib" : "";
+    print $mf "\t$Config{cp} PERLSRV.$Config{'so'} $stafDir/bin/${lib_prefix}PERLSRV.$Config{'so'}\n";
     print $mf "\n";
     print $mf "clean:\n";
     print $mf "\t$Config{'rm'} *$Config{'_o'} *$Config{'_a'} *.$Config{'so'} *.pdb *.exp\n";
     print $mf "\n";
     print $mf "test:\n";
+    # test normal operation. loading a service, request, unloading
     print $mf "\t$Config{'perlpath'} t/01.pl\n";
+    # test a service that return an error in the request operation
     print $mf "\t$Config{'perlpath'} t/02.pl\n";
+    # test a service that dies in the request operation
     print $mf "\t$Config{'perlpath'} t/03.pl\n";
+    # test a service that fails to compile
     print $mf "\t$Config{'perlpath'} t/04.pl\n";
+    # test a sevice that is under a directory. dir::Service
     print $mf "\t$Config{'perlpath'} t/05.pl\n";
+    # test a service that inherate from other service
     print $mf "\t$Config{'perlpath'} t/06.pl\n";
+    # test a service that dies in the new function
     print $mf "\t$Config{'perlpath'} t/07.pl\n";
+    # test threaded response
+    print $mf "\t$Config{'perlpath'} t/08.pl\n";
     print $mf "\n";
 }
 
@@ -64,7 +78,7 @@ sub find_dynaloader_lib {
     $modlibname =~ s,[\\/][^\\/]+$,,;	# Q&D basename
     my $file = "$modlibname/auto/$module/$module$lib_ext";
     if (not -f $file) {
-        print "not found. (normal for win32)\n";
+        print "not found. (normal for ActiveState dist.)\n";
         return '';
     } else {
         print "found.\n";

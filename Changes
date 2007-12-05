@@ -1,5 +1,12 @@
 Revision history for Perl extension STAFService.
 
+0.20  Dec 5, 2007
+	- Support for threaded services
+
+0.07  Nov 28, 2007
+	- Fixed bug of unclean crash when service failed to load
+	- Improved Linux makefile
+
 0.06  Oct 26, 2007
     - Improved module-loading. (won't crash STAF when itself crash)
 	- Improved unix-makefile. but probably not working yet.

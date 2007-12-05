@@ -9,11 +9,15 @@ src/STAFIncludes.h
 src/STAFPerlService.cpp
 src/STAFPerlService.def
 src/STAFServiceInterface.h
+src/synchelper.cpp
+src/synchelper.h
 lib/STAFService.pm
 t/SimpleService.pm
 t/FailToCompile.pm
 t/SubService.pm
 t/TestSubs.pm
+t/PerlLocks.pm
+t/SleepService.pm
 t/dir/Service.pm
 t/01.pl
 t/02.pl
@@ -22,3 +26,4 @@ t/04.pl
 t/05.pl
 t/06.pl
 t/07.pl
+t/08.pl

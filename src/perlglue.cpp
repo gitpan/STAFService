@@ -1,5 +1,6 @@
 
 #include "perlglue.h"
+
 #define PERL_NO_GET_CONTEXT     /* we want efficiency */
 
 #include "EXTERN.h"
@@ -8,13 +9,15 @@
 
 #undef malloc
 #undef free
+#define SYNC_DATA_HASH_KEY "STAFServiceSyncData"
 
-typedef struct PerlHolder {
+struct PerlHolder {
 	PerlInterpreter *perl;
 	HV *data;
 	SV *object;
 	char *moduleName;
-} PHolder;
+	SV *delayedAnswerSV;
+};
 
 void InitPerlEnviroment() {
 	//PERL_SYS_INIT3(&argc,&argv,&env);
@@ -24,11 +27,29 @@ void DestroyPerlEnviroment() {
 	//PERL_SYS_TERM();
 }
 
+XS(STAFDelayedAnswerSub) {
+	dXSARGS;
+	if (items != 3)
+		croak("Usage: STAF::DelayedAnswer(requestNumber, return code, answer)");
+	SV** syncSV_ref = hv_fetch(PL_modglobal, SYNC_DATA_HASH_KEY, strlen(SYNC_DATA_HASH_KEY), 0);
+	if (NULL == syncSV_ref) {
+		fprintf(stderr, "DelayedAnswerRequest: Got NULL pointer as SyncData\n");
+		croak("DelayedAnswerRequest: Got NULL pointer as SyncData\n");
+		XSRETURN_NO;
+	}
+	SyncData *sd = (SyncData*)SvUV(*syncSV_ref);
+	STRLEN len;
+	const char *msg = SvPV(ST(2), len);
+	PostSingleSyncByID(sd, SvUV(ST(0)), SvUV(ST(1)), msg, len);
+	XSRETURN_YES;
+}
+
 EXTERN_C void boot_DynaLoader (pTHX_ CV* cv);
 EXTERN_C void xs_init(pTHX) {
 	char *file = __FILE__;
     /* DynaLoader is a special case */
     newXS("DynaLoader::boot_DynaLoader", boot_DynaLoader, file);
+	newXS("STAF::DelayedAnswer", STAFDelayedAnswerSub, file);
 }
 
 const char *toChar(STAFString_t source, char **tmpString) {
@@ -46,8 +67,8 @@ const char *toChar(STAFString_t source, char **tmpString) {
 	return *tmpString;
 }
 
-void SetErrorBuffer(STAFString_t *pErrorBuffer, const char *err_str) {
-	STAFStringConstruct(pErrorBuffer, err_str, strlen(err_str), NULL);
+void SetErrorBuffer(STAFString_t *pErrorBuffer, const char *err_str, unsigned int len) {
+	STAFStringConstruct(pErrorBuffer, err_str, len, NULL);
 }
 
 /** my_eval_sv(code)
@@ -76,8 +97,7 @@ int my_eval_sv(pTHX_ SV *sv) {
 	return ret_int;
 }
 
-STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString_t ServiceName, unsigned int maxlogs, long maxlogsize, STAFString_t *pErrorBuffer) {
-	PHolder *ph = (PHolder *)holder;
+STAFRC_t RedirectPerlStdout(PHolder *ph, STAFString_t WriteLocation, STAFString_t ServiceName, unsigned int maxlogs, long maxlogsize, STAFString_t *pErrorBuffer) {
 	dTHXa(ph->perl);
 	const char *command_fmt = 
 		"{; "
@@ -97,8 +117,7 @@ STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString
 		    "unlink $dir.'/PerlInterpreterLog.'.$maxlogs if -e $dir.'/PerlInterpreterLog.'.$maxlogs;\n"
 		    "for (my $ix=$maxlogs-1; $ix>0; $ix++) { \n"
 			  "rename($dir.'/PerlInterpreterLog.'.$ix, $dir.'/PerlInterpreterLog.'.($ix+1)) }}\n"
-//		  "open my $fh, \">>\", $dir.'/PerlInterpreterLog.1' or die 'Failed to redirect';\n"
-//		  "my $old_fh = select $fh;\n"
+		  // The open uses a global to prevent an error message on service unload
 		  "open $STAFSERVICE::_REDIRECT_HANDLE, \">>\", $dir.'/PerlInterpreterLog.1' or die 'Failed to redirect';\n"
 		  "select $STAFSERVICE::_REDIRECT_HANDLE;\n"
 		  "print '*' x 80, \"\\n\";\n"
@@ -116,8 +135,9 @@ STAFRC_t RedirectPerlStdout(void *holder, STAFString_t WriteLocation, STAFString
 	int ret = my_eval_sv(aTHX_ command);
 	SvREFCNT_dec(command);
 	if (ret == 0) {
-		SetErrorBuffer(pErrorBuffer, "Error: Redirection failed!");
-		fprintf(stderr, "Error: Redirection failed!");
+		const char *msg = "Error: Redirection failed!";
+		SetErrorBuffer(pErrorBuffer, msg, strlen(msg));
+		fprintf(stderr, msg);
 		return kSTAFUnknownError;
 	}
 	return kSTAFOk;
@@ -128,10 +148,9 @@ void my_load_module(pTHX_ const char *module_name) {
 	load_module(PERL_LOADMOD_NOIMPORT, sv_name, Nullsv);
 }
 
-STAFRC_t PreparePerlInterpreter(void *holder, STAFString_t library_name, STAFString_t *pErrorBuffer) {
+STAFRC_t PreparePerlInterpreter(PHolder *ph, STAFString_t library_name, STAFString_t *pErrorBuffer) {
 	char *acsii_name;
 	unsigned int i, len, rc;
-	PHolder *ph = (PHolder *)holder;
 	dTHXa(ph->perl);
 
 	toChar(library_name, &acsii_name);
@@ -144,8 +163,9 @@ STAFRC_t PreparePerlInterpreter(void *holder, STAFString_t library_name, STAFStr
 				( c == '_' || c == ':')
 			  )) {
 			toChar(NULL, &acsii_name);
-			SetErrorBuffer(pErrorBuffer, "Illigal name"); // FIXME: this string arrive nowhere!
-			fprintf(stderr, "Illigal name");
+			const char *msg = "Illigal name";
+			SetErrorBuffer(pErrorBuffer, msg, strlen(msg));
+			fprintf(stderr, msg);
 			return kSTAFUnknownError;
 		}
 	}
@@ -153,21 +173,21 @@ STAFRC_t PreparePerlInterpreter(void *holder, STAFString_t library_name, STAFStr
 	SV *command = newSVpvf("require %s", acsii_name);
 	toChar(NULL, &acsii_name);
     dSP;
-	ENTER;
-	SAVETMPS;
-	PUSHMARK(SP);
-    eval_sv(command, G_EVAL | G_DISCARD);
-	SvREFCNT_dec(command);
+    eval_sv(command, G_SCALAR);
+    SPAGAIN;
+    SV *sv = POPs;
+    PUTBACK;
 	
 	if (SvTRUE(ERRSV)) {
-		SetErrorBuffer(pErrorBuffer, SvPVX(ERRSV)); // FIXME: this string arrive nowhere!
-		fprintf(stderr, "Error: %s", SvPVX(ERRSV));
+		STRLEN len;
+		const char *msg = SvPV(ERRSV, len);
+		SetErrorBuffer(pErrorBuffer, msg, len);
+		fprintf(stderr, "Error: %s", msg);
 		rc = kSTAFUnknownError;
 	} else {
 		rc = kSTAFOk;
 	}
-    FREETMPS;
-    LEAVE;
+	SvREFCNT_dec(command);
 	return rc;
 }
 
@@ -179,8 +199,7 @@ void storeIV2HV(pTHX_ HV *hv, const char *key, int value) {
 	hv_store(hv, key, strlen(key), newSViv(value), 0);
 }
 
-void PopulatePerlHolder(void *holder, STAFString_t service_name, STAFString_t library_name, STAFServiceType_t serviceType) {
-	PHolder *ph = (PHolder *)holder;
+void PopulatePerlHolder(PHolder *ph, STAFString_t service_name, STAFString_t library_name, STAFServiceType_t serviceType) {
 	dTHXa(ph->perl);
 	PERL_SET_CONTEXT(ph->perl);
 
@@ -197,7 +216,7 @@ void PopulatePerlHolder(void *holder, STAFString_t service_name, STAFString_t li
 	toChar(NULL, &tmp);
 }
 
-void *CreatePerl() {
+PHolder *CreatePerl(SyncData *syncData) {
 	InitPerlEnviroment();
     char *embedding[] = { "", "-e", "0" };
 
@@ -214,13 +233,22 @@ void *CreatePerl() {
     perl_run(pperl);
 
 	my_load_module(aTHX_ "lib");
-
+	
+	// Preparing the interpreter to threaed resposes. includes:
+	// 1. hiding the pointer to the SyncData inside a global hash
+	// 2. making a special value $STAF::DelayedAnswer to mark that
+	//    the answer will follow later.
+	storeIV2HV(aTHX_ PL_modglobal, SYNC_DATA_HASH_KEY, (int)syncData);
+	SV *delayAnswerMarker = get_sv("STAF::DelayedAnswer", TRUE);
+	sv_setref_uv(delayAnswerMarker, Nullch, 42);
+	SV *myNullSv = SvRV(delayAnswerMarker);
+	
 	ph->perl = pperl;
+	ph->delayedAnswerSV = myNullSv;
 	return ph;
 }
 
-void perl_uselib(void *holder, STAFString_t path) {
-	PHolder *ph = (PHolder *)holder;
+void perl_uselib(PHolder *ph, STAFString_t path) {
 	dTHXa(ph->perl);
 	PERL_SET_CONTEXT(ph->perl);
 	char *tmp = NULL;
@@ -254,16 +282,21 @@ SV *call_new(pTHX_ char *module_name, HV *hv, STAFString_t *pErrorBuffer) {
 	ret = POPs;
 	if (SvTRUE(ERRSV)) {
 		// There was an error
-		SetErrorBuffer(pErrorBuffer, SvPVX(ERRSV));
+		STRLEN len;
+		const char *msg = SvPV(ERRSV, len);
+		SetErrorBuffer(pErrorBuffer, msg, len);
 		ret = NULL;
     } else {
 		if (!SvOK(ret)) {
 			// undefined result?!
-			SetErrorBuffer(pErrorBuffer, "Unexpected Result Returned!");
+			const char *msg = "Unexpected Result Returned!";
+			SetErrorBuffer(pErrorBuffer, msg, strlen(msg));
 			ret = NULL;
 		} else if (!(SvROK(ret) && (SvTYPE(ret) & SVt_PVMG))) {
 			// Not an object
-			SetErrorBuffer(pErrorBuffer, SvPV_nolen(ret));
+			STRLEN len;
+			const char *msg = SvPV(ret, len);
+			SetErrorBuffer(pErrorBuffer, msg, len);
 			ret = NULL;
 		} else {
 			SvREFCNT_inc(ret);
@@ -274,8 +307,7 @@ SV *call_new(pTHX_ char *module_name, HV *hv, STAFString_t *pErrorBuffer) {
     return ret;
 }
 
-STAFRC_t InitService(void *holder, STAFString_t parms, STAFString_t writeLocation, STAFString_t *pErrorBuffer) {
-	PHolder *ph = (PHolder *)holder;
+STAFRC_t InitService(PHolder *ph, STAFString_t parms, STAFString_t writeLocation, STAFString_t *pErrorBuffer) {
 	dTHXa(ph->perl);
 	PERL_SET_CONTEXT(ph->perl);
 	char *tmp = NULL;
@@ -289,7 +321,7 @@ STAFRC_t InitService(void *holder, STAFString_t parms, STAFString_t writeLocatio
 	return kSTAFOk;
 }
 
-STAFRC_t call_accept_request(pTHX_ SV *obj, SV *hash_ref, STAFString_t *pResultBuffer) {
+STAFRC_t call_accept_request(pTHX_ SV *obj, SV *hash_ref, STAFString_t *pResultBuffer, SV *marker) {
 	STAFRC_t ret_code = kSTAFOk;
 	int count;
 	I32 ax;
@@ -307,15 +339,26 @@ STAFRC_t call_accept_request(pTHX_ SV *obj, SV *hash_ref, STAFString_t *pResultB
 
 	if (SvTRUE(ERRSV)) {
 		// There was an error
-		SetErrorBuffer(pResultBuffer, SvPVX(ERRSV));
+		STRLEN len;
+		const char *msg = SvPV(ERRSV, len);
+		SetErrorBuffer(pResultBuffer, msg, len);
 		ret_code = kSTAFUnknownError;
     } else if (count!=2) {
 		// The call ended successed but did not return two items!
-		SetErrorBuffer(pResultBuffer, "AcceptRequest did not returned two items!");
-		ret_code = kSTAFUnknownError;
+		if (count==1 && SvROK(ST(0)) && SvRV(ST(0)) == marker) {
+			// a delayed answer.
+			ret_code = 77;
+			*pResultBuffer = NULL;
+		} else {
+			const char *msg = "AcceptRequest did not returned two items!";
+			SetErrorBuffer(pResultBuffer, msg, strlen(msg));
+			ret_code = kSTAFUnknownError;
+		}
 	} else {
 		ret_code = SvIV(ST(0));
-		SetErrorBuffer(pResultBuffer, SvPV_nolen(ST(1)));
+		STRLEN len;
+		const char *msg = SvPV(ST(1), len);
+		SetErrorBuffer(pResultBuffer, msg, len);
 	}
     FREETMPS;
     LEAVE;
@@ -338,24 +381,23 @@ HV *ConvertRequestStruct(pTHX_ struct STAFServiceRequestLevel30 *request) {
 	storeIV2HV(aTHX_ ret, "diagEnabled",		request->diagEnabled); 
 	storeIV2HV(aTHX_ ret, "trustLevel",			request->trustLevel); 
 	storeIV2HV(aTHX_ ret, "requestNumber",		request->requestNumber); 
-	storeIV2HV(aTHX_ ret, "handle",				request->handle); // FIXME - should use an object?
+	storeIV2HV(aTHX_ ret, "handle",				request->handle);
 	toChar(NULL, &tmp);
 	return ret;
 }
 
-STAFRC_t ServeRequest(void *holder, struct STAFServiceRequestLevel30 *request, STAFString_t *pResultBuffer) {
-	PHolder *ph = (PHolder *)holder;
+STAFRC_t ServeRequest(PHolder *ph, struct STAFServiceRequestLevel30 *request, STAFString_t *pResultBuffer) {
 	dTHXa(ph->perl);
 	PERL_SET_CONTEXT(ph->perl);
 	HV *params = ConvertRequestStruct(aTHX_ request);
+	//storeIV2HV(aTHX_ params, "requestID", requestId);
 	SV *params_ref = newRV_noinc((SV*)params);
-	STAFRC_t ret = call_accept_request(aTHX_ ph->object, params_ref, pResultBuffer);
+	STAFRC_t ret = call_accept_request(aTHX_ ph->object, params_ref, pResultBuffer, ph->delayedAnswerSV);
 	SvREFCNT_dec(params_ref);
 	return ret;
 }
 
-STAFRC_t Terminate(void *holder) {
-	PHolder *ph = (PHolder *)holder;
+STAFRC_t Terminate(PHolder *ph) {
 	dTHXa(ph->perl);
 	PERL_SET_CONTEXT(ph->perl);
 	if (ph->data!=NULL) {
@@ -369,8 +411,7 @@ STAFRC_t Terminate(void *holder) {
 	return kSTAFOk;
 }
 
-STAFRC_t DestroyPerl(void *holder) {
-	PHolder *ph = (PHolder *)holder;
+STAFRC_t DestroyPerl(PHolder *ph) {
 	PerlInterpreter *pperl = ph->perl;
 	free(ph->moduleName);
 	free(ph);

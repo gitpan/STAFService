@@ -20,6 +20,23 @@ STAFRC_t STAFMutexSemRequest(STAFMutexSem_t mutex, unsigned int timeout,
 STAFRC_t STAFMutexSemRelease(STAFMutexSem_t mutex, unsigned int *osRC);
 STAFRC_t STAFMutexSemDestruct(STAFMutexSem_t *pMutex, unsigned int *osRC);
 
+/* Event */
+
+#define STAF_EVENT_SEM_INDEFINITE_WAIT (unsigned int)-1
+typedef struct STAFEventSemImplementation *STAFEventSem_t;
+typedef enum   STAFEventSemState_e {
+    kSTAFEventSemReset  = 0, 
+    kSTAFEventSemPosted = 1
+} STAFEventSemState_t;
+STAFRC_t STAFEventSemConstruct(STAFEventSem_t *pEvent, 
+                               const char *name, unsigned int *osRC);
+STAFRC_t STAFEventSemPost(STAFEventSem_t pEvent, unsigned int *osRC);
+STAFRC_t STAFEventSemReset(STAFEventSem_t pEvent, unsigned int *osRC);
+STAFRC_t STAFEventSemWait(STAFEventSem_t pEvent, unsigned int timeout,
+                          unsigned int *osRC);
+STAFRC_t STAFEventSemDestruct(STAFEventSem_t *pEvent, unsigned int *osRC);
+
+
 /* String */
 
 typedef struct STAFStringImplementation *STAFString_t;

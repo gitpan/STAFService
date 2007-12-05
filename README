@@ -1,4 +1,4 @@
-STAFService version 0.06
+STAFService version 0.20
 ========================
 
 This module was create to enable writing STAF services in Perl.
@@ -16,7 +16,7 @@ To install this module type the following:
    make install
 
 You might need to fiddle a bit with the make file, if it is not working on you platform.
-Is known to work in MSWindowsXP, with MSVC6.
+Is known to work in MSWindowsXP, with MSVC6, and should work on linux.
 
 DEPENDENCIES
 

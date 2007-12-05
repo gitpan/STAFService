@@ -7,33 +7,48 @@
 
 #include "STAFServiceInterface.h"
 #include "STAFIncludes.h"
+#include "synchelper.h"
 #include "perlglue.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-STAFRC_t ParseParameters(STAFServiceInfoLevel30 *pInfo, void *perl_holder, unsigned int *maxLogs, long *maxLogSize, STAFString_t *pErrorBuffer);
+typedef struct STAFProcPerlServiceDataST {
+	PHolder *perl;
+	STAFMutexSem_t mutex;
+	SyncData *syncData;
+} STAFProcPerlServiceData;
+
+STAFRC_t ParseParameters(STAFServiceInfoLevel30 *pInfo, PHolder *perl_holder, unsigned int *maxLogs, long *maxLogSize, STAFString_t *pErrorBuffer);
 STAFRC_t ReplaceChar(STAFString_t opr_str, char old, char newc);
 
 STAFRC_t STAFServiceConstruct(STAFServiceHandle_t *pServiceHandle,
-                              void *pServiceInfo, unsigned int infoLevel,
-                              STAFString_t *pErrorBuffer)
+							  void *pServiceInfo, unsigned int infoLevel,
+							  STAFString_t *pErrorBuffer)
 {
 	if (infoLevel != 30) return kSTAFInvalidAPILevel;
-
+	
 	STAFServiceInfoLevel30 *pInfo = static_cast<STAFServiceInfoLevel30 *>(pServiceInfo);
 	unsigned int maxLogs = 5; // Defaults to keeping 5 PerlInterpreter logs
 	long maxLogSize = 1048576; // Default size of each log is 1M
 	STAFRC_t ret;
-
+	
 	STAFProcPerlServiceData *pData = (STAFProcPerlServiceData*)malloc(sizeof(STAFProcPerlServiceData));
 	if (pData==NULL) {
 		return kSTAFUnknownError;
 	}
+	SyncData *syncData = CreateSyncData();
+	if (NULL == syncData) {
+		free(pData);
+		return kSTAFUnknownError;
+	}
+	pData->syncData = syncData;
 
-	void *perl_data = CreatePerl();
-	if (pData==NULL) {
+	PHolder *perl_data = CreatePerl(syncData);
+	if (perl_data==NULL) {
+		free(pData);
+		DestroySyncData(syncData);
 		return kSTAFUnknownError;
 	}
 
@@ -47,19 +62,25 @@ STAFRC_t STAFServiceConstruct(STAFServiceHandle_t *pServiceHandle,
 
 	ret = RedirectPerlStdout(perl_data, pInfo->writeLocation, pInfo->name, maxLogs, maxLogSize, pErrorBuffer);
 	if (ret!=kSTAFOk) {
-		DestroyPerl(pData);
+		free(pData);
+		DestroySyncData(syncData);
+		DestroyPerl(perl_data);
 		return ret;
 	}
 	ret = PreparePerlInterpreter(perl_data, pInfo->exec, pErrorBuffer);
 	if (ret!=kSTAFOk) {
-		DestroyPerl(pData);
+		free(pData);
+		DestroySyncData(syncData);
+		DestroyPerl(perl_data);
 		return ret;
 	}
 
 	ret = STAFMutexSemConstruct(&(pData->mutex), NULL, NULL);
 	if (ret!=kSTAFOk) {
-		Terminate(pData->perl);
-		DestroyPerl(pData);
+		free(pData);
+		DestroySyncData(syncData);
+		Terminate(perl_data);
+		DestroyPerl(perl_data);
 		return ret;
 	}
 	*pServiceHandle=pData;
@@ -67,42 +88,42 @@ STAFRC_t STAFServiceConstruct(STAFServiceHandle_t *pServiceHandle,
 }
 
 STAFRC_t STAFServiceDestruct(STAFServiceHandle_t *serviceHandle,
-                             void *pDestructInfo,
-                             unsigned int destructLevel,
-                             STAFString_t *pErrorBuffer)
+							 void *pDestructInfo,
+							 unsigned int destructLevel,
+							 STAFString_t *pErrorBuffer)
 {
-    if (destructLevel != 0) return kSTAFInvalidAPILevel;
-
+	if (destructLevel != 0) return kSTAFInvalidAPILevel;
+	
     STAFProcPerlServiceData *pData =
-        static_cast<STAFProcPerlServiceData *>(*serviceHandle);
-
+		static_cast<STAFProcPerlServiceData *>(*serviceHandle);
+	
 	STAFMutexSemDestruct(&(pData->mutex), NULL);
+	DestroySyncData(pData->syncData);
 	DestroyPerl(pData->perl);
 	free(pData);
 
     *serviceHandle = 0;
-
+	
     return kSTAFOk;
 }
 
-
 STAFRC_t STAFServiceInit(STAFServiceHandle_t serviceHandle,
-                         void *pInitInfo, unsigned int initLevel,
-                         STAFString_t *pErrorBuffer)
+						 void *pInitInfo, unsigned int initLevel,
+						 STAFString_t *pErrorBuffer)
 {
-    if (initLevel != 30) return kSTAFInvalidAPILevel;
-
+	if (initLevel != 30) return kSTAFInvalidAPILevel;
+	
     STAFProcPerlServiceData *pData =
-        static_cast<STAFProcPerlServiceData *>(serviceHandle);
-    STAFServiceInitLevel30 *pInfo =
-        static_cast<STAFServiceInitLevel30 *>(pInitInfo);
+		static_cast<STAFProcPerlServiceData *>(serviceHandle);
+	STAFServiceInitLevel30 *pInfo =
+		static_cast<STAFServiceInitLevel30 *>(pInitInfo);
 
 	STAFRC_t ret = STAFMutexSemRequest(pData->mutex, -1, NULL);
 	if (ret!=kSTAFOk)
 		return ret;
 
 	ret = InitService(pData->perl, pInfo->parms, pInfo->writeLocation, pErrorBuffer);
-
+	
 	if (STAFMutexSemRelease(pData->mutex, NULL) != kSTAFOk) {
 		const char *msg = "Error in ServiceInit: could not aquire lock!";
 		//fprintf(stderr, "%s\n", msg);
@@ -114,20 +135,20 @@ STAFRC_t STAFServiceInit(STAFServiceHandle_t serviceHandle,
 }
 
 STAFRC_t STAFServiceTerm(STAFServiceHandle_t serviceHandle,
-                         void *pTermInfo, unsigned int termLevel,
-                         STAFString_t *pErrorBuffer)
+						 void *pTermInfo, unsigned int termLevel,
+						 STAFString_t *pErrorBuffer)
 {
-    if (termLevel != 0) return kSTAFInvalidAPILevel;
-
+	if (termLevel != 0) return kSTAFInvalidAPILevel;
+	
     STAFProcPerlServiceData *pData =
-        static_cast<STAFProcPerlServiceData *>(serviceHandle);
+		static_cast<STAFProcPerlServiceData *>(serviceHandle);
 
 	STAFRC_t ret = STAFMutexSemRequest(pData->mutex, -1, NULL);
 	if (ret!=kSTAFOk)
 		return ret;
 
 	ret = Terminate(pData->perl);
-
+	
 	if (STAFMutexSemRelease(pData->mutex, NULL) != kSTAFOk) {
 		const char *msg = "Error in ServiceTerm: could not aquire lock!";
 		//fprintf(stderr, "%s\n", msg);
@@ -138,17 +159,16 @@ STAFRC_t STAFServiceTerm(STAFServiceHandle_t serviceHandle,
 	return ret;
 }
 
-
 STAFRC_t STAFServiceAcceptRequest(STAFServiceHandle_t serviceHandle,
-                                  void *pRequestInfo, unsigned int reqLevel,
-                                  STAFString_t *pResultBuffer)
+								  void *pRequestInfo, unsigned int reqLevel,
+								  STAFString_t *pResultBuffer)
 {
-    if (reqLevel != 30) return kSTAFInvalidAPILevel;
+	if (reqLevel != 30) return kSTAFInvalidAPILevel;
 
-    STAFProcPerlServiceData *pData =
-        static_cast<STAFProcPerlServiceData *>(serviceHandle);
-    STAFServiceRequestLevel30 *pInfo =
-        static_cast<STAFServiceRequestLevel30 *>(pRequestInfo);
+    STAFProcPerlServiceData *pData = static_cast<STAFProcPerlServiceData *>(serviceHandle);
+	STAFServiceRequestLevel30 *pInfo = static_cast<STAFServiceRequestLevel30 *>(pRequestInfo);
+
+	SingleSync *ss = GetSingleSync(pData->syncData, pInfo->requestNumber);
 	
 	STAFRC_t ret = STAFMutexSemRequest(pData->mutex, -1, NULL);
 	if (ret!=kSTAFOk)
@@ -157,12 +177,17 @@ STAFRC_t STAFServiceAcceptRequest(STAFServiceHandle_t serviceHandle,
 	ret = ServeRequest(pData->perl, pInfo, pResultBuffer);
 
 	if (STAFMutexSemRelease(pData->mutex, NULL) != kSTAFOk) {
-		const char *msg = "Error in AcceptRequest: could not aquire lock!";
+		const char *msg = "Error in AcceptRequest: could not release lock!";
 		//fprintf(stderr, "%s\n", msg);
 		STAFStringConstruct(pResultBuffer, msg, strlen(msg), NULL);
-		return kSTAFUnknownError;
+		ret = kSTAFUnknownError;
 	}
 
+	if (77==ret && NULL == *pResultBuffer) {
+		// this is a delayed answer. wait for the real answer
+		ret = WaitForSingleSync(ss, pResultBuffer);
+	}
+	ReleaseSingleSync(pData->syncData, ss);
 	return ret;
 }
 
@@ -217,7 +242,7 @@ int STAFStringCompare(STAFString_t str1, STAFString_t str2) {
 	return 0;
 }
 
-STAFRC_t ParseParameters(STAFServiceInfoLevel30 *pInfo, void *perl_holder, unsigned int *maxLogs, long *maxLogSize, STAFString_t *pErrorBuffer) {
+STAFRC_t ParseParameters(STAFServiceInfoLevel30 *pInfo, PHolder *perl_holder, unsigned int *maxLogs, long *maxLogSize, STAFString_t *pErrorBuffer) {
 
 	STAFString_t MaxLogsSizeString;
 	STAFString_t MaxLogsString;
@@ -238,7 +263,7 @@ STAFRC_t ParseParameters(STAFServiceInfoLevel30 *pInfo, void *perl_holder, unsig
             // Check to make sure it is an integer value > 0
 			STAFRC_t ret1 = STAFStringToUInt(optionValue, maxLogs, 10, NULL);
 			if (ret1 != kSTAFOk) {
-				char *msg = "Error: MAXLOGS value is incorrect!";
+				const char *msg = "Error: MAXLOGS value is incorrect!";
 				STAFStringConstruct(pErrorBuffer, msg, strlen(msg), NULL);
 				ret = kSTAFServiceConfigurationError;
 				break;
@@ -251,7 +276,7 @@ STAFRC_t ParseParameters(STAFServiceInfoLevel30 *pInfo, void *perl_holder, unsig
 			unsigned int maxLogSizeTmp;
 			STAFRC_t ret1 = STAFStringToUInt(optionValue, &maxLogSizeTmp, 10, NULL);
 			if (ret1 != kSTAFOk) {
-				char *msg = "Error: MAXLOGSIZE value is incorrect!";
+				const char *msg = "Error: MAXLOGSIZE value is incorrect!";
 				STAFStringConstruct(pErrorBuffer, msg, strlen(msg), NULL);
 				ret = kSTAFServiceConfigurationError;
 				break;
@@ -289,3 +314,6 @@ STAFRC_t ReplaceChar(STAFString_t opr_str, char old, char newc) {
 	return ret;
 }
 
+void printerr(char *str) {
+	fprintf(stderr, str);
+}

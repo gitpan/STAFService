@@ -1,6 +1,6 @@
 package STAFService;
 
-our $VERSION = 0.06;
+our $VERSION = 0.20;
 
 1;
 __END__
@@ -40,11 +40,14 @@ And SimpleService.pm should look like that:
 
 This package supply the nessery dynamic library (or shared object) needed for
 running Perl Services under STAF version 3.
+
 In this simple module, every service have it's own Perl Interperter, and the
 access is single-threads. (meaning that there won't be two concurent AcceptRequest
-calls)
+calls) For multi-threaded services, see below.
+
 STDOUT is redirected to STAF's log file. So don't worry about this and just print
-whatver you think should go to that log file.
+whatver you think should go to that log file. prints to STDERR will be displayed
+in the STAFProc's window.
 
 =head1 INSTALLATION
 
@@ -55,8 +58,12 @@ You know the drill.
   make test
   make install
 
-- The installation process needs STAF to be up and running
-- Also, need STAF's bin directory in the Perl5Lib
+=over
+=item *
+The installation process needs STAF to be up and running
+=item *
+Also, need STAF's bin directory in the Perl5Lib
+=back
 
 =head1 STAF CONFIGURATION
 
@@ -68,7 +75,7 @@ connected to the package name, or anything else.
 =head2 LIBRARY PERLSRV
 
 Tells STAF that this service will be executed using a DLL/SO called PERLSRV.
-That's fine with me.
+(The SO might be called libPERLSRV.so, if this is you system convension)
 
 =head2 EXECUTE SimpleService
 
@@ -127,6 +134,8 @@ will be treated as error and the service will be terminated.
   WriteLocation - A directory for temporary files, if needed.
   Params - Whatever is writen in the PARMS in the config file.
 
+Note that if a STAF handle is needed for this service, this is a good place to register it.
+
 =head2 AcceptRequest
 
 The worker function. will be called for every request that need to be served.
@@ -146,26 +155,44 @@ returning anything else will be treated as error.
   isLocalRequest
   diagEnabled
   trustLevel
-  requestNumber
+  requestNumber - needed for threaded services
   handleName - of the requesting process
   handle - the handle number of the requesting process
 
 =head2 DESTROY
 
 If cleanup is needed, you can implement a DESTROY method that will be called then
-the service will be shut down. up to you.
+the service will be shut down.
+
+=head1 USING THREADS
+
+For writing a STAF Service that can serve multiple request concurently, you need to
+answer a request with the B<$STAF::DelayedAnswer> special variable.
+
+Asyncronically, Some internal thread inside the service should call:
+
+  STAF::DelayedAnswer($requestNumber, $return_code, $answer);
+
+The request number is supplied with the request. Note that it is your own responsibility
+to manage your own threads. For an example, see t/SleepService.pm that is a full blown
+multi threaded service.
+
+On the other hand, it is possible to use the same API in a single threaded service.
+Usefull when answer to one client has to wait for a request from other client. For an example,
+see t/PerlLocks.om that emulate Perl's locking and signaling, using single threaded service.
 
 =head1 BUGS
 
-Non known.
+With SleepService.pm, for every worker thread created an error message "Leaked Scalars: 2"
+is displayed. Yet to be resolved.
 
 =head1 SEE ALSO
 
-STAF homepage: http://staf.sourceforge.net/
+STAF homepage: L<<a href="http://staf.sourceforge.net/">http://staf.sourceforge.net/</a>>
 
 =head1 AUTHOR
 
-Fomberg Shmuel, E<lt>owner@semuel.co.il<gt>
+Fomberg Shmuel, E<lt>owner@semuel.co.ilE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
