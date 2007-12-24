@@ -390,7 +390,6 @@ STAFRC_t ServeRequest(PHolder *ph, struct STAFServiceRequestLevel30 *request, ST
 	dTHXa(ph->perl);
 	PERL_SET_CONTEXT(ph->perl);
 	HV *params = ConvertRequestStruct(aTHX_ request);
-	//storeIV2HV(aTHX_ params, "requestID", requestId);
 	SV *params_ref = newRV_noinc((SV*)params);
 	STAFRC_t ret = call_accept_request(aTHX_ ph->object, params_ref, pResultBuffer, ph->delayedAnswerSV);
 	SvREFCNT_dec(params_ref);

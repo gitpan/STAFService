@@ -4,10 +4,12 @@ use threads::shared;
 use Thread::Queue;
 use strict;
 use warnings;
-no warnings 'once';
 
 # In this queue the master threads queue jobs for the slave worker
 my $work_queue = new Thread::Queue;
+# keeps track of how many free worker there are. can be below zero, if the
+# number of worker reached max_workers, and more request are being recieved
+# then being serviced.
 my $free_workers : shared = 0;
 
 sub new {
@@ -16,14 +18,24 @@ sub new {
     my $self = {
         threads_list => [],
         worker_created => 0,
-        max_workers => 5, # do not create more then 5 workers
+        # limiting the number of created worker to some constant.
+        max_workers => 5, 
     };
     return bless $self, $class;
 }
 
 sub AcceptRequest {
-    my ($self, $params) = @_;
-    my @array : shared = ($params->{requestNumber}, $params->{request});
+    my $self = shift;
+    my $params = shift;
+    # Primilinary checking. maybe we can satisfy this request immidiately,
+    # and won't need to hand it off to a worker thread.
+    if ($params->{trustLevel} < 3) {
+        return (25, "Only trusted client can sleep here"); # kSTAFAccessDenied
+    }
+    if ($params->{request} == 0) {
+        return (0, "still tired");
+    }
+    # Do we have a waiting worker? if not, create a new one.
     if ($free_workers <= 0 and $self->{worker_created} < $self->{max_workers}) {
         my $thr = threads->create(\&Worker);
         push @{ $self->{threads_list} }, $thr;
@@ -32,12 +44,17 @@ sub AcceptRequest {
         lock $free_workers;
         $free_workers--;
     }
+    my @array : shared = ($params->{requestNumber}, $params->{request});
     $work_queue->enqueue(\@array);
     return $STAF::DelayedAnswer;
 }
 
 sub DESTROY {
     my ($self) = @_;
+    # The main service object itself is being copied with the worker threads,
+    # and in the end of the program they are destroyed. this line make sure
+    # that only the main thread will kill the worker thread.
+    return unless threads->tid == 0;
     # Ask all the threads to stop, and join them.
     for my $thr (@{ $self->{threads_list} }) {
         $work_queue->enqueue('stop');

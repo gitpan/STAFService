@@ -1,6 +1,6 @@
 package STAFService;
 
-our $VERSION = 0.20;
+our $VERSION = 0.21;
 
 1;
 __END__
@@ -39,7 +39,8 @@ And SimpleService.pm should look like that:
 =head1 DESCRIPTION
 
 This package supply the nessery dynamic library (or shared object) needed for
-running Perl Services under STAF version 3.
+running Perl Services under STAF version 3. Version 0.21 is identical to the DLL
+that delivered by the STAF distribution v3.2.4. 
 
 In this simple module, every service have it's own Perl Interperter, and the
 access is single-threads. (meaning that there won't be two concurent AcceptRequest
@@ -164,6 +165,25 @@ returning anything else will be treated as error.
 If cleanup is needed, you can implement a DESTROY method that will be called then
 the service will be shut down.
 
+=head2 MAPING TO STAF SERVICE STEPS
+
+A STAF service has five steps of its life: Construct, Init, ServeRequests, Terminate,
+Destroy. and these step are mapped to the following parts of your module:
+
+=over
+=item *
+Construct: The module is being loaded.
+=item *
+Init: the new function is called. this is the place to create a STAF handle, if needed.
+=item *
+ServeRequest: the AcceptRequest function is called for every request
+=item *
+Terminate: the object is DESTORYed.
+=item *
+Destroy: the Perl interpreter is closed. END blocks will be executed and global objects
+will be destroyed here.
+=back
+
 =head1 USING THREADS
 
 For writing a STAF Service that can serve multiple request concurently, you need to
@@ -179,16 +199,116 @@ multi threaded service.
 
 On the other hand, it is possible to use the same API in a single threaded service.
 Usefull when answer to one client has to wait for a request from other client. For an example,
-see t/PerlLocks.om that emulate Perl's locking and signaling, using single threaded service.
+see t/PerlLocks.pm that emulate Perl's locking and signaling, using single threaded service.
+
+Third possibility is to mixed approche. For answers that don't take much time to answer,
+answer immidiately. (for example, to a query request) And for questions that take time,
+take the threaded approche and deglate the work for one of the worker threads.
+
+For example, this is the SleepService.pm used for testings:
+
+    package SleepService;
+    use threads;
+    use threads::shared;
+    use Thread::Queue;
+    use strict;
+    use warnings;
+    
+    # In this queue the master threads queue jobs for the slave worker
+    my $work_queue = new Thread::Queue;
+    # keeps track of how many free worker there are. can be below zero, if the
+    # number of worker reached max_workers, and more request are being recieved
+    # then being serviced.
+    my $free_workers : shared = 0;
+    
+    sub new {
+        my ($class, $params) = @_;
+        print "Params: ", join(", ", map $_."=>".$params->{$_}, keys %$params), "\n";
+        my $self = {
+            threads_list => [],
+            worker_created => 0,
+            # limiting the number of created worker to some constant.
+            max_workers => 5, 
+        };
+        return bless $self, $class;
+    }
+    
+    sub AcceptRequest {
+        my $self = shift;
+        my $params = shift;
+        # Primilinary checking. maybe we can satisfy this request immidiately,
+        # and won't need to hand it off to a worker thread.
+        if ($params->{trustLevel} < 3) {
+            return (25, "Only trusted client can sleep here"); # kSTAFAccessDenied
+        }
+        if ($params->{request} == 0) {
+            return (0, "still tired");
+        }
+        # Do we have a waiting worker? if not, create a new one.
+        if ($free_workers <= 0 and $self->{worker_created} < $self->{max_workers}) {
+            my $thr = threads->create(\&Worker);
+            push @{ $self->{threads_list} }, $thr;
+            $self->{worker_created}++;
+        } else {
+            lock $free_workers;
+            $free_workers--;
+        }
+        my @array : shared = ($params->{requestNumber}, $params->{request});
+        $work_queue->enqueue(\@array);
+        return $STAF::DelayedAnswer;
+    }
+    
+    sub DESTROY {
+        my ($self) = @_;
+        # The main service object itself is being copied with the worker threads,
+        # and in the end of the program they are destroyed. this line make sure
+        # that only the main thread will kill the worker thread.
+        return unless threads->tid == 0;
+        # Ask all the threads to stop, and join them.
+        for my $thr (@{ $self->{threads_list} }) {
+            $work_queue->enqueue('stop');
+        }
+        for my $thr (@{ $self->{threads_list} }) {
+            eval { $thr->join() };
+            print STDERR "On destroy: $@\n" if $@;
+        }
+    }
+    
+    sub Worker {
+        my $loop_flag = 1;
+        while ($loop_flag) {
+            eval {
+                # Step one - get the work from the queue
+                my $array_ref = $work_queue->dequeue();
+                if (not ref($array_ref) and $array_ref eq 'stop') {
+                    $loop_flag = 0;
+                    return;
+                }
+                my ($reqId, $reqTime) = @$array_ref;
+                
+                # Step two - sleep, and return an answer
+                sleep($reqTime);
+                STAF::DelayedAnswer($reqId, 0, "slept well");
+                
+                # Final Step - increase the number of free threads
+                {
+                    lock $free_workers;
+                    $free_workers++;
+                }
+            }
+        }
+        return 1;
+    }
+    
+    1;
 
 =head1 BUGS
 
-With SleepService.pm, for every worker thread created an error message "Leaked Scalars: 2"
-is displayed. Yet to be resolved.
+Non known.
 
 =head1 SEE ALSO
 
-STAF homepage: L<<a href="http://staf.sourceforge.net/">http://staf.sourceforge.net/</a>>
+STAF homepage: http://staf.sourceforge.net/
 
 =head1 AUTHOR
 

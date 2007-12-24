@@ -1,5 +1,9 @@
 Revision history for Perl extension STAFService.
 
+0.21  Dec 24, 2007
+    - Improved Documentation
+	- The Threaded example does not print warnings anymore
+
 0.20  Dec 5, 2007
 	- Support for threaded services
 
