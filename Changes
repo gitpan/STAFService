@@ -1,5 +1,11 @@
 Revision history for Perl extension STAFService.
 
+0.22  Jan 15, 2008
+	- Improved Documentation
+	- Fixed a memory leak that would have happen if the service creator would, for
+	  reasons unknown, call STAF::DelayedAnswer() on the request, and then return
+	  normally instead of returning $STAF::DelayedAnswer.
+
 0.21  Dec 24, 2007
     - Improved Documentation
 	- The Threaded example does not print warnings anymore

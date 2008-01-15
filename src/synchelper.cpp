@@ -68,6 +68,14 @@ void ReleaseSingleSync(SyncData *sd, SingleSync *ss) {
 			}
 		}
 	}
+	if (ss->resultBuffer != NULL) {
+		fprintf(stderr, "Warning: STAF::DelayedAnswer() was called for request number %d\n", ss->request_number);
+		fprintf(stderr, "   But the data was released without being used.\n");
+		fprintf(stderr, "   Please check that you use the currect requestNumber\n");
+		fprintf(stderr, "   (and probably now you have a client that will wait forever...)\n");
+		STAFStringDestruct(&(ss->resultBuffer) , NULL);
+		ss->resultBuffer = NULL;
+	}
 	ss->request_number = 0;
     ss->next = sd->first_free;
     sd->first_free = ss;

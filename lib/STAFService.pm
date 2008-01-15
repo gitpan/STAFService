@@ -1,6 +1,6 @@
 package STAFService;
 
-our $VERSION = 0.21;
+our $VERSION = 0.22;
 
 1;
 __END__
@@ -170,38 +170,35 @@ the service will be shut down.
 A STAF service has five steps of its life: Construct, Init, ServeRequests, Terminate,
 Destroy. and these step are mapped to the following parts of your module:
 
-=over
-=item *
 Construct: The module is being loaded.
-=item *
+
 Init: the new function is called. this is the place to create a STAF handle, if needed.
-=item *
+
 ServeRequest: the AcceptRequest function is called for every request
-=item *
-Terminate: the object is DESTORYed.
-=item *
+
+Terminate: the object is DESTORYed. Please unregister your STAF handle here.
+
 Destroy: the Perl interpreter is closed. END blocks will be executed and global objects
 will be destroyed here.
-=back
 
 =head1 USING THREADS
 
+It is useful to have the service single-thread. For example, when handling external equipment
+that can not handle concurrent requests, when decisions need to be made without race conditions,
+the requests are guaranteed to come synchronically.
+
+But sometimes it is needed to serve multiple requests concurently. 
 For writing a STAF Service that can serve multiple request concurently, you need to
 answer a request with the B<$STAF::DelayedAnswer> special variable.
 
-Asyncronically, Some internal thread inside the service should call:
+Asynchronically, Some internal thread inside the service should call:
 
   STAF::DelayedAnswer($requestNumber, $return_code, $answer);
 
 The request number is supplied with the request. Note that it is your own responsibility
-to manage your own threads. For an example, see t/SleepService.pm that is a full blown
-multi threaded service.
+to manage your own threads. 
 
-On the other hand, it is possible to use the same API in a single threaded service.
-Usefull when answer to one client has to wait for a request from other client. For an example,
-see t/PerlLocks.pm that emulate Perl's locking and signaling, using single threaded service.
-
-Third possibility is to mixed approche. For answers that don't take much time to answer,
+It is possible is to use mixed approche. For answers that don't take much time to answer,
 answer immidiately. (for example, to a query request) And for questions that take time,
 take the threaded approche and deglate the work for one of the worker threads.
 
@@ -223,6 +220,7 @@ For example, this is the SleepService.pm used for testings:
     
     sub new {
         my ($class, $params) = @_;
+        # this will be printed to the log file
         print "Params: ", join(", ", map $_."=>".$params->{$_}, keys %$params), "\n";
         my $self = {
             threads_list => [],
@@ -262,7 +260,7 @@ For example, this is the SleepService.pm used for testings:
         my ($self) = @_;
         # The main service object itself is being copied with the worker threads,
         # and in the end of the program they are destroyed. this line make sure
-        # that only the main thread will kill the worker thread.
+        # that only the main thread will kill the worker threads.
         return unless threads->tid == 0;
         # Ask all the threads to stop, and join them.
         for my $thr (@{ $self->{threads_list} }) {
@@ -277,6 +275,7 @@ For example, this is the SleepService.pm used for testings:
     sub Worker {
         my $loop_flag = 1;
         while ($loop_flag) {
+            # protect myself against exception that will kill a worker
             eval {
                 # Step one - get the work from the queue
                 my $array_ref = $work_queue->dequeue();
@@ -301,6 +300,41 @@ For example, this is the SleepService.pm used for testings:
     }
     
     1;
+
+Third approch is to use the same API in a single threaded service.
+Usefull when answer to one client has to wait for a request from other client.
+Here is a simplified example, that each request will wait until other request
+will be made:
+
+    package RollingCatch;
+    use strict;
+    
+    my $last = undef;
+    
+    sub new {
+        my ($class, $params) = @_;
+        return bless {}, $class;
+    }
+    
+    sub AcceptRequest {
+        my ($self, $params) = @_;
+        STAF::DelayedAnswer($last, 0, "byebye") if defined $last;
+        $last = $params->{requestNumber};
+        return $STAF::DelayedAnswer;
+    }
+    
+    sub DESTROY {
+        STAF::DelayedAnswer($last, 0, "goodbye") if defined $last;
+    }
+    
+    1;
+
+Note that when trying to remove this service, the STAF framework will wait a bit for
+the last request to end (and it won't, because it is waiting for something to happen)
+and only then will remove the service. (act that will release the last requestor)
+
+For a more advanced/useful example, see t/PerlLocks.pm that emulate Perl's locking and signaling,
+using single threaded service.
 
 =head1 BUGS
 

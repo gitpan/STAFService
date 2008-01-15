@@ -1,9 +1,3 @@
-/*****************************************************************************/
-/* Software Testing Automation Framework (STAF)                              */
-/* (C) Copyright IBM Corp. 2004                                              */
-/*                                                                           */
-/* This software is licensed under the Common Public License (CPL) V1.0.     */
-/*****************************************************************************/
 
 #include "STAFServiceInterface.h"
 #include "STAFIncludes.h"
