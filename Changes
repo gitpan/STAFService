@@ -1,5 +1,8 @@
 Revision history for Perl extension STAFService.
 
+0.23 Oct 1, 2008
+    - Fixed Segfault in PreparePerlInterpreter (thanks Mike)
+
 0.22  Jan 15, 2008
 	- Improved Documentation
 	- Fixed a memory leak that would have happen if the service creator would, for

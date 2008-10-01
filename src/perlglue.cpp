@@ -152,6 +152,7 @@ STAFRC_t PreparePerlInterpreter(PHolder *ph, STAFString_t library_name, STAFStri
 	char *acsii_name;
 	unsigned int i, len, rc;
 	dTHXa(ph->perl);
+	acsii_name = NULL;
 
 	toChar(library_name, &acsii_name);
 	len = strlen(acsii_name);

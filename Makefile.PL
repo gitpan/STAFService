@@ -6,6 +6,10 @@ use ExtUtils::Embed;
 eval {
     require PLSTAF;
 };
+if ($@ and $ENV{AUTOMATED_TESTING}) {
+    print "This module won't pass automated tests unless you have STAF 3 installed";
+    exit 0;
+}
 if ($@) {
     print "Error: can not load STAF's Perl support.\n";
     print "Please make sure that STAF 3 is installed\n";
@@ -65,6 +69,7 @@ sub print_makefile {
     # test threaded response
     print $mf "\t$Config{'perlpath'} t/08.pl\n";
     print $mf "\n";
+    print "Makefile was written\n";
 }
 
 sub find_dynaloader_lib {
