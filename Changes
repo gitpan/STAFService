@@ -1,5 +1,8 @@
 Revision history for Perl extension STAFService.
 
+0.24 Oct 25, 2008
+    - Adapting to Perl 5.10
+
 0.23 Oct 1, 2008
     - Fixed Segfault in PreparePerlInterpreter (thanks Mike)
 

@@ -307,7 +307,3 @@ STAFRC_t ReplaceChar(STAFString_t opr_str, char old, char newc) {
 	STAFStringDestruct(&newc_t, NULL);
 	return ret;
 }
-
-void printerr(char *str) {
-	fprintf(stderr, str);
-}

@@ -21,6 +21,7 @@ struct PerlHolder {
 
 void InitPerlEnviroment() {
 	//PERL_SYS_INIT3(&argc,&argv,&env);
+	PERL_SYS_INIT3(NULL, NULL, NULL);
 }
 
 void DestroyPerlEnviroment() {
@@ -42,14 +43,6 @@ XS(STAFDelayedAnswerSub) {
 	const char *msg = SvPV(ST(2), len);
 	PostSingleSyncByID(sd, SvUV(ST(0)), SvUV(ST(1)), msg, len);
 	XSRETURN_YES;
-}
-
-EXTERN_C void boot_DynaLoader (pTHX_ CV* cv);
-EXTERN_C void xs_init(pTHX) {
-	char *file = __FILE__;
-    /* DynaLoader is a special case */
-    newXS("DynaLoader::boot_DynaLoader", boot_DynaLoader, file);
-	newXS("STAF::DelayedAnswer", STAFDelayedAnswerSub, file);
 }
 
 const char *toChar(STAFString_t source, char **tmpString) {
@@ -129,7 +122,6 @@ STAFRC_t RedirectPerlStdout(PHolder *ph, STAFString_t WriteLocation, STAFString_
 	char *service_name = NULL;
 	SV *command = newSVpvf(command_fmt, toChar(WriteLocation, &write_location), toChar(ServiceName, &service_name), 
 							maxlogsize, maxlogs, ph->moduleName);
-	//fprintf(stderr, "The redirection command: |%s|\n", SvPVX(command));
 	toChar(NULL, &write_location);
 	toChar(NULL, &service_name);
 	int ret = my_eval_sv(aTHX_ command);
@@ -164,7 +156,7 @@ STAFRC_t PreparePerlInterpreter(PHolder *ph, STAFString_t library_name, STAFStri
 				( c == '_' || c == ':')
 			  )) {
 			toChar(NULL, &acsii_name);
-			const char *msg = "Illigal name";
+			const char *msg = "Invalid library name";
 			SetErrorBuffer(pErrorBuffer, msg, strlen(msg));
 			fprintf(stderr, msg);
 			return kSTAFUnknownError;
@@ -217,21 +209,32 @@ void PopulatePerlHolder(PHolder *ph, STAFString_t service_name, STAFString_t lib
 	toChar(NULL, &tmp);
 }
 
+EXTERN_C void xs_init(pTHX);
+
 PHolder *CreatePerl(SyncData *syncData) {
 	InitPerlEnviroment();
     char *embedding[] = { "", "-e", "0" };
+	char *file = __FILE__;
 
 	PHolder *ph = (PHolder*)malloc(sizeof(PHolder));
 	if (ph==NULL) return NULL;
 
     PerlInterpreter *pperl = perl_alloc();
 	if (pperl==NULL) return NULL;
+	PERL_SET_CONTEXT(pperl);
 
-    perl_construct( pperl );
 	dTHXa(pperl);
+	PL_perl_destruct_level = 1;
+    perl_construct( pperl );
 	perl_parse(pperl, xs_init, 3, embedding, NULL);
+	
+	#ifdef PERL_EXIT_DESTRUCT_END
+	// only in Perl 5.8 and up
     PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
+	#endif
     perl_run(pperl);
+
+	newXS("STAF::DelayedAnswer", STAFDelayedAnswerSub, file);
 
 	my_load_module(aTHX_ "lib");
 	
@@ -293,7 +296,7 @@ SV *call_new(pTHX_ char *module_name, HV *hv, STAFString_t *pErrorBuffer) {
 			const char *msg = "Unexpected Result Returned!";
 			SetErrorBuffer(pErrorBuffer, msg, strlen(msg));
 			ret = NULL;
-		} else if (!(SvROK(ret) && (SvTYPE(ret) & SVt_PVMG))) {
+		} else if (!sv_isobject(ret)) {
 			// Not an object
 			STRLEN len;
 			const char *msg = SvPV(ret, len);
@@ -351,7 +354,7 @@ STAFRC_t call_accept_request(pTHX_ SV *obj, SV *hash_ref, STAFString_t *pResultB
 			ret_code = 77;
 			*pResultBuffer = NULL;
 		} else {
-			const char *msg = "AcceptRequest did not returned two items!";
+			const char *msg = "AcceptRequest did not return two items";
 			SetErrorBuffer(pResultBuffer, msg, strlen(msg));
 			ret_code = kSTAFUnknownError;
 		}
@@ -417,6 +420,7 @@ STAFRC_t DestroyPerl(PHolder *ph) {
 	free(ph);
 	dTHXa(pperl);
 	PERL_SET_CONTEXT(pperl);
+	PL_perl_destruct_level = 1;
 	perl_destruct(pperl);
     perl_free(pperl);
 	DestroyPerlEnviroment();

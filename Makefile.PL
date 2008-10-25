@@ -31,17 +31,21 @@ sub print_makefile {
     my $perl_include = perl_inc();
     my $src_include = create_include("./src");
     my $dyna_loader = find_dynaloader_lib();
-    print $mf qq{\t$Config{'cc'} $ccflags $perl_include $src_include -c src/STAFPerlService.cpp src/perlglue.cpp src/synchelper.cpp\n};
+    # create the perlxsi.c file that contain the xs_init function
+    print $mf qq{\t$Config{'perlpath'} -MExtUtils::Embed -e xsinit\n};
+    # compile all
+    print $mf qq{\t$Config{'cc'} $ccflags $perl_include $src_include -c src/STAFPerlService.cpp src/perlglue.cpp src/synchelper.cpp perlxsi.c\n};
+    # build all
     if ($Config{'lddlflags'} =~ /-dll/) {
         print "Will Link MSVC style\n";
-        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} synchelper$Config{'_o'} $dyna_loader STAF$Config{'_a'} $Config{'libperl'} $Config{'libs'} -def:"src/STAFPerlService.def" -out:"PERLSRV.$Config{'so'}" -libpath:"$stafDir/lib"\n};
+        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} synchelper$Config{'_o'} perlxsi$Config{'_o'} $dyna_loader STAF$Config{'_a'} $Config{'libperl'} $Config{'libs'} -def:"src/STAFPerlService.def" -out:"PERLSRV.$Config{'so'}" -libpath:"$stafDir/lib"\n};
     } elsif ($Config{'lddlflags'} =~ /-shared/) {
         print "Will Link GCC style\n";
-        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} synchelper$Config{'_o'} $dyna_loader -lSTAF -lperl -oPERLSRV.$Config{'so'} -L$stafDir/lib\n};
+        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} synchelper$Config{'_o'} perlxsi$Config{'_o'} $dyna_loader -lSTAF -lperl -oPERLSRV.$Config{'so'} -L$stafDir/lib\n};
     } else {
         print "Can not identify your linking program.\n";
         print "Please edit the Makefile or write the module editor (owner\@semuel.co.il)\n";
-        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} synchelper$Config{'_o'} $dyna_loader -lSTAF -lperl -oPERLSRV.$Config{'so'} -L$stafDir/lib\n};
+        print $mf qq{\t$Config{'ld'} $Config{'lddlflags'} STAFPerlService$Config{'_o'} perlglue$Config{'_o'} synchelper$Config{'_o'} perlxsi$Config{'_o'} $dyna_loader -lSTAF -lperl -oPERLSRV.$Config{'so'} -L$stafDir/lib\n};
     }
     print $mf "\n";
     print $mf "install:\n";
@@ -49,7 +53,7 @@ sub print_makefile {
     print $mf "\t$Config{cp} PERLSRV.$Config{'so'} $stafDir/bin/${lib_prefix}PERLSRV.$Config{'so'}\n";
     print $mf "\n";
     print $mf "clean:\n";
-    print $mf "\t$Config{'rm'} *$Config{'_o'} *$Config{'_a'} *.$Config{'so'} *.pdb *.exp\n";
+    print $mf "\t$Config{'rm'} *$Config{'_o'} *$Config{'_a'} *.$Config{'so'} *.pdb *.exp perlxsi.c\n";
     print $mf "\n";
     print $mf "test:\n";
     # test normal operation. loading a service, request, unloading

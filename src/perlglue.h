@@ -18,6 +18,4 @@ STAFRC_t ServeRequest(PHolder *holder, struct STAFServiceRequestLevel30 *request
 STAFRC_t Terminate(PHolder *holder);
 STAFRC_t DestroyPerl(PHolder *holder);
 
-void printerr(char *str);
-
 #endif
