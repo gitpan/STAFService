@@ -163,16 +163,23 @@ STAFRC_t STAFServiceAcceptRequest(STAFServiceHandle_t serviceHandle,
 	STAFServiceRequestLevel30 *pInfo = static_cast<STAFServiceRequestLevel30 *>(pRequestInfo);
 
 	SingleSync *ss = GetSingleSync(pData->syncData, pInfo->requestNumber);
+	if ( NULL == ss ) {
+		const char *msg = "Error in AcceptRequest: received NULL as sync record";
+		STAFStringConstruct(pResultBuffer, msg, strlen(msg), NULL);
+		return kSTAFUnknownError;
+	}
 	
 	STAFRC_t ret = STAFMutexSemRequest(pData->mutex, -1, NULL);
-	if (ret!=kSTAFOk)
+	if (ret!=kSTAFOk) {
+		const char *msg = "Error in AcceptRequest: Failed to get mutex";
+		STAFStringConstruct(pResultBuffer, msg, strlen(msg), NULL);
 		return ret;
+	}
 
 	ret = ServeRequest(pData->perl, pInfo, pResultBuffer);
 
 	if (STAFMutexSemRelease(pData->mutex, NULL) != kSTAFOk) {
 		const char *msg = "Error in AcceptRequest: could not release lock!";
-		//fprintf(stderr, "%s\n", msg);
 		STAFStringConstruct(pResultBuffer, msg, strlen(msg), NULL);
 		ret = kSTAFUnknownError;
 	}

@@ -1,5 +1,9 @@
 Revision history for Perl extension STAFService.
 
+0.25 Nov 5, 2008
+    - Fixing bugs in the SyncHelper module, fixing lockup under load
+      (still need to add more tests about it)
+
 0.24 Oct 25, 2008
     - Adapting to Perl 5.10
 

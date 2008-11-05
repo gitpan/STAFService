@@ -55,17 +55,28 @@ void DestroySyncData(SyncData *sd) {
 }
 
 void ReleaseSingleSync(SyncData *sd, SingleSync *ss) {
-    STAFMutexSemRequest(sd->mutex, -1, NULL);
+    STAFRC_t ret = STAFMutexSemRequest(sd->mutex, -1, NULL);
+	if (ret != kSTAFOk) {
+		fprintf(stderr, "ReleaseSingleSync: Warning - failed to request sem\n");
+	}
 	uint hashed = ss->request_number % sd->list_created;
 	if (sd->list[hashed] == ss) {
 		sd->list[hashed] = ss->next;
 	} else {
 		SingleSync *t = sd->list[hashed];
+		uint counter = 0;
 		while (t!= NULL) {
 			if (t->next == ss) {
 				t->next = ss->next;
 				break;
 			}
+			t = t->next;
+			if ( counter > sd->list_occupied ) {
+				fprintf(stderr, "ReleaseSingleSync: Warning - searching for more slots then exists?\n");
+				fprintf(stderr, "Counter %d, Occupid %d, Request %d\n", counter, sd->list_occupied, ss->request_number);
+				return;
+			}
+			counter++;
 		}
 	}
 	if (ss->resultBuffer != NULL) {
@@ -79,12 +90,24 @@ void ReleaseSingleSync(SyncData *sd, SingleSync *ss) {
 	ss->request_number = 0;
     ss->next = sd->first_free;
     sd->first_free = ss;
-    STAFMutexSemRelease(sd->mutex, NULL);
+    ret = STAFMutexSemRelease(sd->mutex, NULL);
+	if (ret != kSTAFOk) {
+		fprintf(stderr, "ReleaseSingleSync: Warning - failed to release sem\n");
+	}
 }
 
 STAFRC_t WaitForSingleSync(SingleSync *ss, STAFString_t *pErrorBuffer) {
-    STAFEventSemWait(ss->event, STAF_EVENT_SEM_INDEFINITE_WAIT, NULL);
-    STAFEventSemReset(ss->event, NULL);
+	STAFRC_t ret;
+    ret = STAFEventSemWait(ss->event, STAF_EVENT_SEM_INDEFINITE_WAIT, NULL);
+	if (ret!=kSTAFOk) {
+		fprintf(stderr, "WaitForSingleSync: Warning - failed while waiting to event\n");
+		return NULL;
+	}
+    ret = STAFEventSemReset(ss->event, NULL);
+	if (ret!=kSTAFOk) {
+		fprintf(stderr, "WaitForSingleSync: Warning - failed while reseting event\n");
+		return NULL;
+	}
 	*pErrorBuffer = ss->resultBuffer;
 	STAFRC_t rc = ss->return_code;
 	ss->return_code = 0;
@@ -96,19 +119,25 @@ SingleSync *_GetSyncById(SyncData *sd, uint request_number) {
     SingleSync *ss = NULL;
 	STAFRC_t ret;
     ret = STAFMutexSemRequest(sd->mutex, -1, NULL);
-	if (ret!=kSTAFOk)
+	if (ret!=kSTAFOk) {
+		fprintf(stderr, "_GetSyncById: Warning - failed to request sem\n");
 		return NULL;
+	}
 	uint hashed = request_number % sd->list_created;
 	ss = sd->list[hashed];
 	while (( ss != NULL ) && ( ss->request_number != request_number )) {
 		ss = ss->next;
 	}
 	
-    STAFMutexSemRelease(sd->mutex, NULL);
+    ret = STAFMutexSemRelease(sd->mutex, NULL);
+	if (ret!=kSTAFOk) {
+		fprintf(stderr, "_GetSyncById: Warning - failed to release sem\n");
+	}
     return ss;
 }
 
 void PostSingleSyncByID(SyncData *sd, unsigned int id, STAFRC_t rc, const char *err_str, unsigned int len) {
+	STAFRC_t ret;
     SingleSync *ss = _GetSyncById(sd, id);
     if (NULL == ss) {
 		fprintf(stderr, "Error: can not find waiting request whose number is %d\n", id);
@@ -118,84 +147,109 @@ void PostSingleSyncByID(SyncData *sd, unsigned int id, STAFRC_t rc, const char *
 	}
 	STAFStringConstruct(&(ss->resultBuffer), err_str, len, NULL);
 	ss->return_code = rc;
-    STAFEventSemPost(ss->event, NULL);
+    ret = STAFEventSemPost(ss->event, NULL);
+	if (ret!=kSTAFOk) {
+		fprintf(stderr, "PostSingleSyncByID: Warning - failed to post event\n");
+	}
 }
 
-SingleSync *GetSingleSync(SyncData *sd, uint request_number) {
-    SingleSync *ss = NULL;
-	STAFRC_t ret = STAFMutexSemRequest(sd->mutex, -1, NULL);
-	if (ret!=kSTAFOk)
-		return NULL;
-    if (NULL != sd->first_free) {
-		uint hashed = request_number % sd->list_created;
-        ss = sd->first_free;
-        sd->first_free = ss->next;
-		ss->next = sd->list[hashed];
-		sd->list[hashed] = ss;
-		ss->request_number = request_number;
-        STAFMutexSemRelease(sd->mutex, NULL);
-        return ss;
-    }
+uint _ExtendSyncTable(SyncData *sd) {
+	uint ix;
+	uint new_base = sd->list_created * 2;
+	SingleSync **list = (SingleSync**)malloc(sizeof(SingleSync*) * new_base);
+	if (NULL == list) {
+		fprintf(stderr, "Failed to malloc memory for new SyncTable\n");
+		return 0;
+	}
+	for (ix=0; ix < new_base; ix++) {
+		list[ix] = NULL;
+	}
+	for (ix=0; ix<sd->list_created; ix++) {
+		SingleSync *ss = sd->list[ix];
+		while (ss != NULL) {
+			SingleSync *next = ss->next;
+			uint hashed = ss->request_number % new_base;
+			ss->next = list[hashed];
+			list[hashed] = ss;
+			ss = next;
+		}
+	}
+	free(sd->list);
+	sd->list = list;
+	sd->list_created = new_base;
+	return 1;
+}
 
+SingleSync *_CreateNewSingleSync(SyncData *sd) {
+    SingleSync *ss = NULL;
     if (sd->list_created <= sd->list_occupied) {
         // if there is no place for a new record - need to expend the array
-		uint ix;
-		uint new_base = sd->list_created * 2;
-        SingleSync **list = (SingleSync**)malloc(sizeof(SingleSync*) * new_base);
-        if (NULL == list) {
-            STAFMutexSemRelease(sd->mutex, NULL);
-            return NULL;
-        }
-		for (ix=0; ix < new_base; ix++) {
-			list[ix] = NULL;
+		if (1 != _ExtendSyncTable(sd)) {
+			return NULL;
 		}
-        for (ix=0; ix<sd->list_created; ix++) {
-			uint hashed;
-			SingleSync *tmp, *ss = sd->list[ix];
-			while (ss != NULL) {
-				tmp = ss->next;
-				hashed = request_number % new_base;
-				ss->next = list[hashed];
-				list[hashed] = ss;
-				ss = tmp;
-			}
-        }
-        free(sd->list);
-        sd->list = list;
-        sd->list_created = sd->list_created * 2;
     }
     
     // now we know that there is enough space for a new record. so lets create it.
     ss = (SingleSync*)malloc(sizeof(SingleSync));
     if (NULL == ss) {
-        STAFMutexSemRelease(sd->mutex, NULL);
+		fprintf(stderr, "GetSingleSync: Warning - failed malloc memory\n");		
         return NULL;
     }
-    ret = STAFEventSemConstruct(&(ss->event), NULL, NULL);
+    STAFRC_t ret = STAFEventSemConstruct(&(ss->event), NULL, NULL);
 	if (ret!=kSTAFOk) {
+		fprintf(stderr, "GetSingleSync: Warning - failed to construct ss sem\n");
         free(ss);
-        STAFMutexSemRelease(sd->mutex, NULL);
 		return NULL;
     }
+	return ss;
+}
+
+SingleSync *GetSingleSync(SyncData *sd, uint request_number) {
+    SingleSync *ss = NULL;
+	STAFRC_t ret = STAFMutexSemRequest(sd->mutex, -1, NULL);
+	if (ret!=kSTAFOk) {
+		fprintf(stderr, "GetSingleSync: Warning - failed to request sem\n");
+		return NULL;
+	}
+    if (NULL != sd->first_free) {
+        ss = sd->first_free;
+        sd->first_free = ss->next;
+    } else {
+		ss = _CreateNewSingleSync(sd);
+		if (NULL == ss) {
+			ret = STAFMutexSemRelease(sd->mutex, NULL);
+			if (ret != kSTAFOk) {
+				fprintf(stderr, "GetSingleSync: Warning - failed release sem on failed ss construct\n");
+			}
+			return NULL;
+		}
+		sd->list_occupied++;
+	}
+
 	uint hashed = request_number % sd->list_created;
     ss->request_number = request_number;
-    ss->next = sd->list[hashed];
-	sd->list_occupied++;
-	sd->list[hashed] = ss;
 	ss->resultBuffer = NULL;
 	ss->return_code = 0;
+    ss->next = sd->list[hashed];
+	sd->list[hashed] = ss;
     
-    STAFMutexSemRelease(sd->mutex, NULL);
+    ret = STAFMutexSemRelease(sd->mutex, NULL);
+	if (ret != kSTAFOk) {
+		fprintf(stderr, "GetSingleSync: Warning - failed release sem\n");
+	}
     return ss;
 }
 
 SyncData *CreateSyncData() {
     STAFRC_t ret;
     SyncData *ds = (SyncData*)malloc(sizeof(SyncData));
-    if (NULL == ds)
-        return NULL;
+    if (NULL == ds) {
+		fprintf(stderr, "CreateSyncData: Warning - failed malloc main data structure\n");
+		return NULL;
+	}
     ds->list = (SingleSync**)malloc(sizeof(SingleSync*)*10);
     if (NULL == ds->list) {
+		fprintf(stderr, "CreateSyncData: Warning - failed malloc hash table\n");
         free(ds);
         return NULL;
     }
@@ -207,6 +261,7 @@ SyncData *CreateSyncData() {
 	}
     ret = STAFMutexSemConstruct(&(ds->mutex), NULL, NULL);
     if (ret!=kSTAFOk) {
+		fprintf(stderr, "CreateSyncData: Warning - failed to construct main sem\n");
         free(ds->list);
         free(ds);
         return NULL;

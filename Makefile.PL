@@ -72,6 +72,8 @@ sub print_makefile {
     print $mf "\t$Config{'perlpath'} t/07.pl\n";
     # test threaded response
     print $mf "\t$Config{'perlpath'} t/08.pl\n";
+    # test fire-and-forget many requests
+    print $mf "\t$Config{'perlpath'} t/09.pl\n";
     print $mf "\n";
     print "Makefile was written\n";
 }

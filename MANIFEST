@@ -18,6 +18,7 @@ t/SubService.pm
 t/TestSubs.pm
 t/PerlLocks.pm
 t/SleepService.pm
+t/DelayedService.pm
 t/dir/Service.pm
 t/01.pl
 t/02.pl
@@ -27,3 +28,4 @@ t/05.pl
 t/06.pl
 t/07.pl
 t/08.pl
+t/09.pl
